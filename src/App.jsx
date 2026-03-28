@@ -3043,8 +3043,7 @@ export default function App(){
     <>
       <style>{CSS}</style>
       <div style={{maxWidth:430,margin:"0 auto",minHeight:"100vh",position:"relative",background:"var(--bg)"}}>
-        {/* Status bar — hide during feynman (it has its own header) */}
-        {        {content}
+        {content}
         {!inFlow&&<BottomNav tab={tab} setTab={setTab} onQuiz={startQuiz}/>}
       </div>
     </>
