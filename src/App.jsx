@@ -1,6 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useRef } from "react";
-import { signInWithGoogle, signOutUser, onAuthChange, getGoogleRedirectResult } from "./firebase_auth";
+import { signInWithGoogle, signOutUser, onAuthChange, handleRedirectResult, getUserStats, saveQuizResult, getLeaderboard, ensureUserDoc } from "./firebase_utils";
 import { QB, getRandom, getChaptersForSubject, QB_STATS } from "./QB.js";
 
 /* ══════════════════════════════════════
@@ -769,8 +769,17 @@ ${transcript}`
 /* ══════════════════════════════════════
    RANKINGS
 ══════════════════════════════════════ */
-function RanksScreen(){
-  const [data,setData]=useState(LB_DATA);
+function RanksScreen({currentUid}){
+  const [data,setData]=useState([]);
+  const [loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    getLeaderboard(currentUid).then(rows=>{
+      if(rows.length>0) setData(rows);
+      else setData(LB_DATA.map((r,i)=>({...r,rank:i+1,isMe:false})));
+      setLoading(false);
+    });
+  },[currentUid]); // eslint-disable-line
   const top3=data.slice(0,3);
   const rest=data.slice(3);
   const podiumOrder=[top3[1],top3[0],top3[2]];
@@ -2354,7 +2363,7 @@ function ChapterSelectScreen({subject, onChapter, onBack}) {
 /* ══════════════════════════════════════
    DASHBOARD SCREEN
 ══════════════════════════════════════ */
-function DashboardScreen({score,rank,streak,accuracy,onBack}){
+function DashboardScreen({score,rank,streak,accuracy,userStats,uid,onBack}){
   const [analytics,setAnalytics]=useState(null);
   const [loading,setLoading]=useState(true);
 
@@ -2529,10 +2538,10 @@ function LoginScreen({onLogin}){
     setError("");
     try{
       const result=await signInWithGoogle();
-      // On mobile, result is null (redirect happens)
-      // On desktop, result has user and token
+      // On mobile result is null (redirect happens, page reloads)
+      // On desktop result is the user object
       if(result){
-        onLogin(result.user,result.token);
+        onLogin(result);
       }
       // On mobile - page will redirect, no action needed
     }catch(e){
@@ -2929,10 +2938,18 @@ export default function App(){
   const [flow,setFlow]=useState(null);
   const [questions,setQs]=useState(null);
   const [result,setResult]=useState(null);
-  const [score,setScore]=useState(2450);
-  const [xp,setXP]=useState(1250);
   const [kb,setKB]=useState(QB); // live knowledge base
-  const rank=7,streak=12,accuracy=87,level=12;
+  const [userStats,setUserStats]=useState({
+    level:1,totalPoints:0,accuracy:0,streak:0,
+    totalQs:0,rank:999,quizzesDone:0,studyMins:0
+  });
+  const score   = userStats.totalPoints;
+  const rank    = userStats.rank;
+  const streak  = userStats.streak;
+  const accuracy= userStats.accuracy;
+  const level   = userStats.level;
+  const xp      = userStats.totalPoints;
+
 
   const [mockResult, setMockResult] = useState(null);
   const [quizSubject,  setQuizSubject]  = useState(null);
@@ -2953,26 +2970,27 @@ export default function App(){
   // Firebase auth listener + handle redirect result
   useEffect(()=>{
     // Handle redirect result first (mobile Google sign-in returns here after redirect)
-    getGoogleRedirectResult().then(result=>{
-      if(result && result.user){
-        setAuthUser(result.user);
-        localStorage.setItem("bb_auth_token", result.token);
-        localStorage.setItem("bb_uid", result.user.uid);
-        localStorage.setItem("bb_username", result.user.displayName||"Student");
-        setAuthLoading(false);
+    handleRedirectResult().then(async user=>{
+      if(user){
+        setAuthUser(user);
+        localStorage.setItem("bb_uid", user.uid);
+        const stats = await getUserStats(user.uid);
+        setUserStats(stats);
       }
-    }).catch(e=>console.log("Redirect error:",e));
+    }).catch(e=>console.log("Redirect:",e));
 
-    const unsub = onAuthChange((result)=>{
-      if(result){
-        setAuthUser(result.user);
-        localStorage.setItem("bb_auth_token", result.token);
-        localStorage.setItem("bb_uid", result.user.uid);
-        localStorage.setItem("bb_username", result.user.displayName||"Student");
+    const unsub = onAuthChange(async (user)=>{
+      if(user){
+        setAuthUser(user);
+        localStorage.setItem("bb_uid", user.uid);
+        localStorage.setItem("bb_username", user.displayName||"Student");
+        // Load live stats from Firestore
+        const stats = await getUserStats(user.uid);
+        setUserStats(stats);
       } else {
         setAuthUser(null);
-        localStorage.removeItem("bb_auth_token");
         localStorage.removeItem("bb_uid");
+        setUserStats({level:1,totalPoints:0,accuracy:0,streak:0,totalQs:0,rank:999,quizzesDone:0,studyMins:0});
       }
       setAuthLoading(false);
     });
@@ -2992,7 +3010,26 @@ export default function App(){
 
   let content;
   if(flow==="loading")     content=<LoadingScreen onReady={qs=>{setQs(qs);setFlow("quiz");}} kb={kb} subject={quizSubject} chapter={quizChapter}/>;
-  else if(flow==="quiz"&&questions) content=<QuizScreen questions={questions} onFinish={r=>{setResult(r);setScore(s=>s+r.ptsEarned);setXP(x=>x+r.ptsEarned);setFlow("results");}}/>;
+  else if(flow==="quiz"&&questions) content=<QuizScreen questions={questions} onFinish={async r=>{
+          setResult(r);
+          const uid=localStorage.getItem("bb_uid");
+          if(uid && r){
+            const saved=await saveQuizResult(uid,{
+              score:r.ptsEarned||0,
+              subject:quizSubject||"General",
+              correct:r.correct||0,
+              total:r.total||5,
+              timeSecs:r.timeSecs||180,
+            });
+            if(saved) setUserStats(s=>({...s,
+              totalPoints:saved.newPoints,
+              accuracy:saved.newAccuracy,
+              level:saved.newLevel,
+              streak:saved.newStreak,
+            }));
+          }
+          setFlow("results");
+        }}/>;
   else if(flow==="results"&&result) content=<ResultsScreen result={result} questions={questions} onHome={goHome} onRetry={()=>setFlow("loading")}/>;
   else if(flow==="feynman") content=<FeynmanTutor onBack={()=>{setFlow(null);setTab("profile");}}/>;
   else if(flow==="neet_mock") content=<NeetMockScreen onBack={goHome} onFinish={r=>{setMockResult(r);setFlow("mock_results");}}/>;
@@ -3002,8 +3039,8 @@ export default function App(){
   else if(tab==="home")     content=<HomeScreen onQuiz={startQuiz} onMock={startMock} onBrowse={subj=>{setBrowseSubject(subj);setFlow("browse");}} onDoubt={()=>setFlow("doubt")} score={score} rank={rank} streak={streak} accuracy={accuracy}/>;
   else if(tab==="duel")     content=<DuelScreen kb={kb}/>;
   else if(tab==="messages") content=<MessagesScreen/>;
-  else if(tab==="ranks")    content=<RanksScreen/>;
-  else if(tab==="dashboard") content=<DashboardScreen score={score} rank={rank} streak={streak} accuracy={accuracy} onBack={()=>setTab("home")}/>;
+  else if(tab==="ranks")    content=<RanksScreen currentUid={authUser?.uid}/>;
+  else if(tab==="dashboard") content=<DashboardScreen score={score} rank={rank} streak={streak} accuracy={accuracy} userStats={userStats} uid={authUser?.uid} onBack={()=>setTab("home")}/>;
   else content=<ProfileScreen score={score} rank={rank} streak={streak} accuracy={accuracy} xp={xp} level={level} kb={kb} addQuestion={addQuestion} onFeynman={()=>setFlow("doubt")} userName={authUser?.displayName||"Student"} userEmail={authUser?.email||""} userPhoto={authUser?.photoURL||""} onSignOut={async()=>{await signOutUser();setAuthUser(null);localStorage.removeItem("bb_auth_token");}} onSignIn={()=>setAuthUser(null)}/>;
 
   // Show loading while checking auth
@@ -3019,9 +3056,11 @@ export default function App(){
     <>
       <style>{CSS}</style>
       <div style={{maxWidth:430,margin:"0 auto"}}>
-        <LoginScreen onLogin={(user,token)=>{
+        <LoginScreen onLogin={async (user)=>{
           setAuthUser(user);
-          localStorage.setItem("bb_auth_token",token);
+          localStorage.setItem("bb_uid", user.uid);
+          const stats = await getUserStats(user.uid);
+          setUserStats(stats);
         }}/>
       </div>
     </>
