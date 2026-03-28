@@ -1,6 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useRef } from "react";
-import { signInWithGoogle, signOutUser, onAuthChange, handleRedirectResult, getUserStats, saveQuizResult, getLeaderboard, ensureUserDoc } from "./firebase_utils";
+import { signInWithGoogle, signOutUser, onAuthChange, getUserStats, saveQuizResult, getLeaderboard, ensureUserDoc } from "./firebase_utils";
 import { QB, getRandom, getChaptersForSubject, QB_STATS } from "./QB.js";
 
 /* ══════════════════════════════════════
@@ -2539,12 +2539,10 @@ function LoginScreen({onLogin}){
     setLoading(true);
     setError("");
     try{
-      const result=await signInWithGoogle();
-      // On mobile result is null (redirect happens, page reloads)
-      // On desktop result is the user object
-      if(result){
-        onLogin(result);
-      }
+      const result = await signInWithGoogle();
+      // Mobile: result is null, redirect happens, onAuthStateChanged fires on return
+      // Desktop: result is the user, call onLogin directly
+      if(result) onLogin(result);
       // On mobile - page will redirect, no action needed
     }catch(e){
       console.error("Sign in error:",e);
@@ -2969,41 +2967,29 @@ export default function App(){
   // eslint-disable-next-line
   const openDoubt   = ()=>setFlow("doubt");
 
-  // Firebase auth: handle redirect FIRST then listener
+  // Firebase auth - single source of truth: onAuthStateChanged
+  // setPersistence is called globally in firebase_utils.js
+  // onAuthStateChanged fires BOTH on fresh login AND after redirect return
   useEffect(()=>{
-    let unsub = ()=>{};
-    const init = async ()=>{
-      const redirectUser = await handleRedirectResult();
-      if(redirectUser){
-        setAuthUser(redirectUser);
-        localStorage.setItem("bb_uid", redirectUser.uid);
-        const stats = await getUserStats(redirectUser.uid);
+    const unsub = onAuthChange(async (user)=>{
+      if(user){
+        setAuthUser(user);
+        localStorage.setItem("bb_uid", user.uid);
+        // Create user doc if first time
+        ensureUserDoc(user).catch(console.error);
+        // Load stats
+        const stats = await getUserStats(user.uid);
         setUserStats(stats);
-        setAuthLoading(false);
-        unsub = onAuthChange(async (u)=>{
-          if(!u){ setAuthUser(null); setUserStats({level:1,totalPoints:0,accuracy:0,streak:0,totalQs:0,rank:999,quizzesDone:0,studyMins:0}); setAuthLoading(false); }
-        });
-        return;
+      } else {
+        setAuthUser(null);
+        localStorage.removeItem("bb_uid");
+        setUserStats({level:1,totalPoints:0,accuracy:0,streak:0,totalQs:0,rank:999,quizzesDone:0,studyMins:0});
       }
-      unsub = onAuthChange(async (user)=>{
-        if(user){
-          setAuthUser(user);
-          localStorage.setItem("bb_uid", user.uid);
-          const stats = await getUserStats(user.uid);
-          setUserStats(stats);
-        } else {
-          setAuthUser(null);
-          localStorage.removeItem("bb_uid");
-          setUserStats({level:1,totalPoints:0,accuracy:0,streak:0,totalQs:0,rank:999,quizzesDone:0,studyMins:0});
-        }
-        setAuthLoading(false);
-      });
-    };
-    init();
+      setAuthLoading(false);
+    });
     return ()=>unsub();
-  },[]);
-  const [authUser,setAuthUser]=useState(null);
-  const [authLoading,setAuthLoading]=useState(true);
+  },[]);// eslint-disable-line
+
   const [showOnboarding,setShowOnboarding]=useState(()=>{
     return !localStorage.getItem("bb_onboarded");
   });
@@ -3063,10 +3049,13 @@ export default function App(){
       <style>{CSS}</style>
       <div style={{maxWidth:430,margin:"0 auto"}}>
         <LoginScreen onLogin={async (user)=>{
-          setAuthUser(user);
-          localStorage.setItem("bb_uid", user.uid);
-          const stats = await getUserStats(user.uid);
-          setUserStats(stats);
+          if(user){
+            setAuthUser(user);
+            localStorage.setItem("bb_uid", user.uid);
+            ensureUserDoc(user).catch(console.error);
+            const stats = await getUserStats(user.uid);
+            setUserStats(stats);
+          }
         }}/>
       </div>
     </>
