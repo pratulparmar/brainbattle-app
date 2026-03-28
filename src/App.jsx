@@ -836,7 +836,7 @@ function RanksScreen(){
 /* ══════════════════════════════════════
    PROFILE
 ══════════════════════════════════════ */
-function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFeynman,onSignOut,userName,userEmail}){
+function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFeynman,onSignOut,onSignIn,userName,userEmail}){
   const [showPaywallProfile,setShowPaywallProfile]=useState(false);
   const [showKB,setShowKB]=useState(false);
   const stats=[
@@ -912,14 +912,24 @@ function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFey
           </div>
         </Card>
 
-        {/* Sign out */}
-        <div onClick={onSignOut} style={{marginBottom:12,padding:"12px 16px",background:"#FFF0F0",borderRadius:16,border:"1px solid #FFD0D0",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"}}>
-          <div>
-            <div style={{fontSize:13,fontWeight:700,color:"#DC2626"}}>Sign Out</div>
-            <div style={{fontSize:11,color:"#9CA3AF",marginTop:1}}>{userEmail||""}</div>
+        {/* Sign in / Sign out */}
+        {userEmail?(
+          <div onClick={onSignOut} style={{marginBottom:12,padding:"12px 16px",background:"#FFF0F0",borderRadius:16,border:"1px solid #FFD0D0",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:"#DC2626"}}>Sign Out</div>
+              <div style={{fontSize:11,color:"#9CA3AF",marginTop:1}}>{userEmail}</div>
+            </div>
+            <div style={{fontSize:16}}>👋</div>
           </div>
-          <div style={{fontSize:16}}>👋</div>
-        </div>
+        ):(
+          <div onClick={onSignIn} style={{marginBottom:12,padding:"12px 16px",background:"#EEF2FF",borderRadius:16,border:"1px solid #C7D2FE",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:"#4338CA"}}>Sign In with Google</div>
+              <div style={{fontSize:11,color:"#9CA3AF",marginTop:1}}>Sync progress across devices</div>
+            </div>
+            <div style={{fontSize:16}}>🔑</div>
+          </div>
+        )}
 
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}><span style={{fontSize:22}}>🏆</span><span style={{fontSize:22,fontWeight:800}}>Achievements</span></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:20}}>
@@ -2374,18 +2384,14 @@ function DashboardScreen({score,rank,streak,accuracy,onBack}){
 
   const mockData={
     subjects:{
-      Biology:{accuracy:72,total_qs:340,correct:245,study_mins:180},
-      Chemistry:{accuracy:58,total_qs:220,correct:128,study_mins:120},
-      Physics:{accuracy:81,total_qs:290,correct:235,study_mins:160},
+      Biology:{accuracy:0,total_qs:0,correct:0,study_mins:0},
+      Chemistry:{accuracy:0,total_qs:0,correct:0,study_mins:0},
+      Physics:{accuracy:0,total_qs:0,correct:0,study_mins:0},
     },
-    weak_chapters:[
-      {chapter:"Electrochemistry",subject:"Chemistry",accuracy:38,attempts:12},
-      {chapter:"Rotational Motion",subject:"Physics",accuracy:42,attempts:18},
-      {chapter:"Organisms and Populations",subject:"Biology",accuracy:44,attempts:9},
-    ],
-    total_study_hours:7.6,
-    overall_accuracy:71,
-    total_questions:850,
+    weak_chapters:[],
+    total_study_hours:0,
+    overall_accuracy:0,
+    total_questions:0,
   };
 
   const data = analytics || mockData;
@@ -2660,8 +2666,11 @@ function PaywallCard({onClose,onUpgrade}){
         {/* Price */}
         <div style={{background:"linear-gradient(135deg,#667EEA,#764BA2)",borderRadius:20,padding:"16px",textAlign:"center",marginBottom:16}}>
           <div style={{fontSize:11,color:"rgba(255,255,255,.7)",fontWeight:700,letterSpacing:1,textTransform:"uppercase"}}>Special Launch Price</div>
-          <div style={{fontSize:36,fontWeight:900,color:"#fff",marginTop:4}}>₹199<span style={{fontSize:16,fontWeight:600,opacity:.8}}>/month</span></div>
-          <div style={{fontSize:12,color:"rgba(255,255,255,.7)",marginTop:2}}>Cancel anytime · 7-day free trial</div>
+          <div style={{display:"flex",alignItems:"center",gap:8,justifyContent:"center",marginTop:4}}>
+            <div style={{fontSize:20,fontWeight:600,color:"rgba(255,255,255,.5)",textDecoration:"line-through"}}>₹999</div>
+            <div style={{fontSize:36,fontWeight:900,color:"#fff"}}>₹599<span style={{fontSize:16,fontWeight:600,opacity:.8}}>/month</span></div>
+          </div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,.7)",marginTop:2}}>Cancel anytime · 7-day free trial · Save 40%</div>
         </div>
 
         <button onClick={onUpgrade} style={{width:"100%",padding:"16px",background:"linear-gradient(135deg,#667EEA,#764BA2)",border:"none",borderRadius:16,color:"#fff",fontSize:16,fontWeight:900,cursor:"pointer",boxShadow:"0 8px 24px rgba(102,126,234,.4)",marginBottom:10}}>
@@ -2943,13 +2952,16 @@ export default function App(){
 
   // Firebase auth listener + handle redirect result
   useEffect(()=>{
-    // Handle redirect result first (for mobile sign-in)
+    // Handle redirect result first (mobile Google sign-in returns here after redirect)
     getGoogleRedirectResult().then(result=>{
-      if(result){
+      if(result && result.user){
         setAuthUser(result.user);
         localStorage.setItem("bb_auth_token", result.token);
+        localStorage.setItem("bb_uid", result.user.uid);
+        localStorage.setItem("bb_username", result.user.displayName||"Student");
+        setAuthLoading(false);
       }
-    });
+    }).catch(e=>console.log("Redirect error:",e));
 
     const unsub = onAuthChange((result)=>{
       if(result){
@@ -2992,7 +3004,7 @@ export default function App(){
   else if(tab==="messages") content=<MessagesScreen/>;
   else if(tab==="ranks")    content=<RanksScreen/>;
   else if(tab==="dashboard") content=<DashboardScreen score={score} rank={rank} streak={streak} accuracy={accuracy} onBack={()=>setTab("home")}/>;
-  else content=<ProfileScreen score={score} rank={rank} streak={streak} accuracy={accuracy} xp={xp} level={level} kb={kb} addQuestion={addQuestion} onFeynman={()=>setFlow("doubt")} userName={authUser?.displayName||"Student"} userEmail={authUser?.email||""} userPhoto={authUser?.photoURL||""} onSignOut={async()=>{await signOutUser();setAuthUser(null);localStorage.removeItem("bb_auth_token");}}/>;
+  else content=<ProfileScreen score={score} rank={rank} streak={streak} accuracy={accuracy} xp={xp} level={level} kb={kb} addQuestion={addQuestion} onFeynman={()=>setFlow("doubt")} userName={authUser?.displayName||"Student"} userEmail={authUser?.email||""} userPhoto={authUser?.photoURL||""} onSignOut={async()=>{await signOutUser();setAuthUser(null);localStorage.removeItem("bb_auth_token");}} onSignIn={()=>setAuthUser(null)}/>;
 
   // Show loading while checking auth
   if(authLoading) return(
@@ -3032,13 +3044,7 @@ export default function App(){
       <style>{CSS}</style>
       <div style={{maxWidth:430,margin:"0 auto",minHeight:"100vh",position:"relative",background:"var(--bg)"}}>
         {/* Status bar — hide during feynman (it has its own header) */}
-        {flow!=="feynman"&&(
-          <div style={{position:"fixed",top:0,left:"50%",transform:"translateX(-50%)",width:"min(430px,100vw)",height:44,zIndex:300,pointerEvents:"none",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 20px",background:"linear-gradient(rgba(250,250,250,1),rgba(250,250,250,0))"}}>
-            <span style={{fontSize:12,fontWeight:700}}>9:41</span>
-            <span style={{fontSize:10,fontWeight:600,color:"var(--green)"}}>5G ████</span>
-          </div>
-        )}
-        {content}
+        {        {content}
         {!inFlow&&<BottomNav tab={tab} setTab={setTab} onQuiz={startQuiz}/>}
       </div>
     </>
