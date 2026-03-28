@@ -1,7 +1,4 @@
 /* eslint-disable */
-// firebase_utils.js — Firestore + Auth utilities for BrainBattle
-// Place in: brainbattle/src/firebase_utils.js
-
 import { initializeApp, getApps } from "firebase/app";
 import {
   getAuth,
@@ -16,62 +13,38 @@ import {
 } from "firebase/auth";
 import {
   getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  collection,
-  query,
-  orderBy,
-  limit,
-  getDocs,
-  increment,
-  serverTimestamp,
+  doc, getDoc, setDoc, updateDoc,
+  collection, query, orderBy, limit, getDocs,
+  increment, serverTimestamp,
 } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey:            "AIzaSyC4awLUkV8Z1PqFCW0FLVlpXhyoGud4dwg",
-  authDomain:        "brainbattle-neet.firebaseapp.com",
+  authDomain:        "brainbattle-app-tu58.vercel.app",
   projectId:         "brainbattle-neet",
   storageBucket:     "brainbattle-neet.firebasestorage.app",
   messagingSenderId: "655830697038",
   appId:             "1:655830697038:web:61918bd3a81942a6bb6f1f",
 };
 
-// Prevent duplicate initialization
-const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+const app      = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db   = getFirestore(app);
+
+// Set persistence IMMEDIATELY — before any auth operation
+setPersistence(auth, browserLocalPersistence).catch(console.error);
 
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
 const isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
 
-// ── Auth ──────────────────────────────────────────────────────────────────
-
 export async function signInWithGoogle() {
-  await setPersistence(auth, browserLocalPersistence);
   if (isMobile) {
     await signInWithRedirect(auth, provider);
     return null;
   } else {
     const result = await signInWithPopup(auth, provider);
-    await ensureUserDoc(result.user);
     return result.user;
-  }
-}
-
-export async function handleRedirectResult() {
-  try {
-    const result = await getRedirectResult(auth);
-    if (result?.user) {
-      await ensureUserDoc(result.user);
-      return result.user;
-    }
-    return null;
-  } catch (e) {
-    console.error("Redirect result error:", e);
-    return null;
   }
 }
 
@@ -83,18 +56,9 @@ export async function signOutUser() {
   await signOut(auth);
 }
 
-// ── Firestore User Doc ────────────────────────────────────────────────────
-
 export const DEFAULT_STATS = {
-  level:       1,
-  totalPoints: 0,
-  accuracy:    0,
-  streak:      0,
-  totalQs:     0,
-  rank:        999,
-  quizzesDone: 0,
-  studyMins:   0,
-  lastSeen:    null,
+  level:1, totalPoints:0, accuracy:0, streak:0,
+  totalQs:0, rank:999, quizzesDone:0, studyMins:0,
 };
 
 export async function ensureUserDoc(user) {
@@ -102,16 +66,15 @@ export async function ensureUserDoc(user) {
   const snap = await getDoc(ref);
   if (!snap.exists()) {
     await setDoc(ref, {
-      uid:         user.uid,
-      name:        user.displayName || "Student",
-      email:       user.email || "",
-      photoURL:    user.photoURL || "",
-      stats:       DEFAULT_STATS,
-      createdAt:   serverTimestamp(),
-      updatedAt:   serverTimestamp(),
+      uid:       user.uid,
+      name:      user.displayName || "Student",
+      email:     user.email || "",
+      photoURL:  user.photoURL || "",
+      stats:     DEFAULT_STATS,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
   } else {
-    // Update last seen
     await updateDoc(ref, { updatedAt: serverTimestamp() });
   }
 }
@@ -120,44 +83,33 @@ export async function getUserStats(uid) {
   try {
     const snap = await getDoc(doc(db, "users", uid));
     if (snap.exists()) {
-      const data = snap.data();
-      return { ...DEFAULT_STATS, ...data.stats };
+      return { ...DEFAULT_STATS, ...(snap.data().stats || {}) };
     }
-  } catch (e) {
-    console.error("getUserStats error:", e);
-  }
-  return DEFAULT_STATS;
+  } catch (e) { console.error("getUserStats:", e); }
+  return { ...DEFAULT_STATS };
 }
 
-// ── Save Quiz Result ──────────────────────────────────────────────────────
-
 export async function saveQuizResult(uid, { score, subject, correct, total, timeSecs }) {
-  if (!uid) return;
+  if (!uid) return null;
   try {
     const ref     = doc(db, "users", uid);
     const snap    = await getDoc(ref);
     const current = snap.exists() ? (snap.data().stats || {}) : {};
-
-    const prevTotal    = current.totalQs     || 0;
-    const prevCorrect  = Math.round((current.accuracy || 0) / 100 * prevTotal);
-    const newTotal     = prevTotal + total;
-    const newCorrect   = prevCorrect + correct;
-    const newAccuracy  = newTotal > 0 ? Math.round(newCorrect / newTotal * 100) : 0;
-    const newPoints    = (current.totalPoints || 0) + score;
-    const newQuizzes   = (current.quizzesDone || 0) + 1;
-    const newStudyMins = (current.studyMins   || 0) + Math.round(timeSecs / 60);
-    const newLevel     = Math.floor(newPoints / 500) + 1;
-
-    // Update streak
+    const prevTotal   = current.totalQs    || 0;
+    const prevCorrect = Math.round((current.accuracy || 0) / 100 * prevTotal);
+    const newTotal    = prevTotal + total;
+    const newCorrect  = prevCorrect + correct;
+    const newAccuracy = newTotal > 0 ? Math.round(newCorrect / newTotal * 100) : 0;
+    const newPoints   = (current.totalPoints || 0) + score;
+    const newQuizzes  = (current.quizzesDone || 0) + 1;
+    const newStudyMins= (current.studyMins   || 0) + Math.round((timeSecs||0) / 60);
+    const newLevel    = Math.floor(newPoints / 500) + 1;
     const today       = new Date().toDateString();
-    const lastSeen    = current.lastSeen || "";
     const yesterday   = new Date(Date.now() - 86400000).toDateString();
-    const newStreak   = lastSeen === yesterday
-      ? (current.streak || 0) + 1
-      : lastSeen === today
-        ? (current.streak || 0)
-        : 1;
-
+    const lastSeen    = current.lastSeen || "";
+    const newStreak   = lastSeen === yesterday ? (current.streak||0)+1
+                      : lastSeen === today     ? (current.streak||0)
+                      : 1;
     await updateDoc(ref, {
       "stats.totalPoints": newPoints,
       "stats.accuracy":    newAccuracy,
@@ -169,23 +121,9 @@ export async function saveQuizResult(uid, { score, subject, correct, total, time
       "stats.lastSeen":    today,
       "updatedAt":         serverTimestamp(),
     });
-
-    // Save to subject-level analytics
-    const subjRef = doc(db, "users", uid, "subjects", subject);
-    await setDoc(subjRef, {
-      correct: increment(correct),
-      total:   increment(total),
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
-
     return { newPoints, newAccuracy, newLevel, newStreak };
-  } catch (e) {
-    console.error("saveQuizResult error:", e);
-    return null;
-  }
+  } catch (e) { console.error("saveQuizResult:", e); return null; }
 }
-
-// ── Leaderboard ───────────────────────────────────────────────────────────
 
 export async function getLeaderboard(currentUid = null) {
   try {
@@ -201,29 +139,27 @@ export async function getLeaderboard(currentUid = null) {
         level:  data.stats?.level       || 1,
         rank:   i + 1,
         isMe:   d.id === currentUid,
+        color:  "#667EEA",
+        emoji:  "🧠",
       };
     });
-
-    // If current user not in top 20, fetch and append them
     if (currentUid && !rows.find(r => r.isMe)) {
       const mySnap = await getDoc(doc(db, "users", currentUid));
       if (mySnap.exists()) {
-        const data = mySnap.data();
+        const d = mySnap.data();
         rows.push({
           uid:    currentUid,
-          name:   data.name || "Student",
-          score:  data.stats?.totalPoints || 0,
-          streak: data.stats?.streak      || 0,
-          level:  data.stats?.level       || 1,
+          name:   d.name||"Student",
+          score:  d.stats?.totalPoints||0,
+          streak: d.stats?.streak||0,
+          level:  d.stats?.level||1,
           rank:   "...",
           isMe:   true,
+          color:  "#FF6B6B",
+          emoji:  "⭐",
         });
       }
     }
-
     return rows;
-  } catch (e) {
-    console.error("getLeaderboard error:", e);
-    return [];
-  }
+  } catch (e) { console.error("getLeaderboard:", e); return []; }
 }
