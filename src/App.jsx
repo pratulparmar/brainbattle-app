@@ -73,12 +73,7 @@ const INITIAL_CHATS = [
   },
 ];
 
-const RECENT_ACTIVITY = [
-  { label:"Rotational Motion Quiz", time:"Today",      pts:450, color:"#E91E8C", bg:"#FFE4F3" },
-  { label:"Science Quiz",           time:"Yesterday",  pts:380, color:"#7C3AED", bg:"#EDE9FE" },
-  { label:"Angular Momentum Quiz",  time:"2 days ago", pts:420, color:"#FF6B35", bg:"#FFF0E8" },
-];
-
+const RECENT_ACTIVITY = [];
 
 /* ══════════════════════════════════════
    CSS
@@ -170,7 +165,7 @@ function BottomNav({tab,setTab,onQuiz}){
 function HomeScreen({onQuiz,onMock,onBrowse,onDoubt,score,rank,streak,accuracy}){
   const neetDate=new Date("2026-05-04T00:00:00"),today=new Date();
   const daysLeft=Math.max(0,Math.ceil((neetDate-today)/(1000*60*60*24)));
-  const todayXP=340,xpGoal=500,xpPct=Math.round(todayXP/xpGoal*100);
+  const todayXP=score%500,xpGoal=500,xpPct=Math.round(todayXP/xpGoal*100);
   const subjectData=[
     {subj:"Physics",   icon:"⚛️",color:"#FF6B6B",bg:"#FFF0F0",ch:getChaptersForSubject("Physics").length},
     {subj:"Chemistry", icon:"🧪",color:"#FFB347",bg:"#FFF8EE",ch:getChaptersForSubject("Chemistry").length},
@@ -775,8 +770,12 @@ function RanksScreen({currentUid}){
 
   useEffect(()=>{
     getLeaderboard(currentUid).then(rows=>{
-      if(rows.length>0) setData(rows);
+      if(rows && rows.length>0) setData(rows);
       else setData(LB_DATA.map((r,i)=>({...r,rank:i+1,isMe:false})));
+      setLoading(false);
+    }).catch(e=>{
+      console.log("Leaderboard:",e);
+      setData(LB_DATA.map((r,i)=>({...r,rank:i+1,isMe:false})));
       setLoading(false);
     });
   },[currentUid]); // eslint-disable-line
@@ -845,12 +844,15 @@ function RanksScreen({currentUid}){
 /* ══════════════════════════════════════
    PROFILE
 ══════════════════════════════════════ */
-function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFeynman,onSignOut,onSignIn,userName,userEmail}){
+function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFeynman,onSignOut,onSignIn,userName,userEmail,userStats}){
   const [showPaywallProfile,setShowPaywallProfile]=useState(false);
   const [showKB,setShowKB]=useState(false);
+  const totalQs=userStats?.totalQs||0;
+  const studyMins=userStats?.studyMins||0;
+  const studyHrs=studyMins>=60?Math.floor(studyMins/60)+"h":studyMins+"m";
   const stats=[
-    {icon:"🧠",color:"#7C3AED",bg:"#EDE9FE",val:"425",label:"Total Questions"},
-    {icon:"⏱️",color:"#00B4D8",bg:"#E0F7FF",val:"32h",label:"Time Studied"},
+    {icon:"🧠",color:"#7C3AED",bg:"#EDE9FE",val:totalQs,label:"Total Questions"},
+    {icon:"⏱️",color:"#00B4D8",bg:"#E0F7FF",val:studyHrs||"0m",label:"Time Studied"},
     {icon:"📅",color:"#FF6B35",bg:"#FFF0E8",val:streak+" days",label:"Current Streak"},
     {icon:"🎯",color:"#22C55E",bg:"#F0FDF4",val:accuracy+"%",label:"Avg Accuracy"},
   ];
@@ -2967,33 +2969,37 @@ export default function App(){
   // eslint-disable-next-line
   const openDoubt   = ()=>setFlow("doubt");
 
-  // Firebase auth listener + handle redirect result
+  // Firebase auth: handle redirect FIRST then listener
   useEffect(()=>{
-    // Handle redirect result first (mobile Google sign-in returns here after redirect)
-    handleRedirectResult().then(async user=>{
-      if(user){
-        setAuthUser(user);
-        localStorage.setItem("bb_uid", user.uid);
-        const stats = await getUserStats(user.uid);
+    let unsub = ()=>{};
+    const init = async ()=>{
+      const redirectUser = await handleRedirectResult();
+      if(redirectUser){
+        setAuthUser(redirectUser);
+        localStorage.setItem("bb_uid", redirectUser.uid);
+        const stats = await getUserStats(redirectUser.uid);
         setUserStats(stats);
+        setAuthLoading(false);
+        unsub = onAuthChange(async (u)=>{
+          if(!u){ setAuthUser(null); setUserStats({level:1,totalPoints:0,accuracy:0,streak:0,totalQs:0,rank:999,quizzesDone:0,studyMins:0}); setAuthLoading(false); }
+        });
+        return;
       }
-    }).catch(e=>console.log("Redirect:",e));
-
-    const unsub = onAuthChange(async (user)=>{
-      if(user){
-        setAuthUser(user);
-        localStorage.setItem("bb_uid", user.uid);
-        localStorage.setItem("bb_username", user.displayName||"Student");
-        // Load live stats from Firestore
-        const stats = await getUserStats(user.uid);
-        setUserStats(stats);
-      } else {
-        setAuthUser(null);
-        localStorage.removeItem("bb_uid");
-        setUserStats({level:1,totalPoints:0,accuracy:0,streak:0,totalQs:0,rank:999,quizzesDone:0,studyMins:0});
-      }
-      setAuthLoading(false);
-    });
+      unsub = onAuthChange(async (user)=>{
+        if(user){
+          setAuthUser(user);
+          localStorage.setItem("bb_uid", user.uid);
+          const stats = await getUserStats(user.uid);
+          setUserStats(stats);
+        } else {
+          setAuthUser(null);
+          localStorage.removeItem("bb_uid");
+          setUserStats({level:1,totalPoints:0,accuracy:0,streak:0,totalQs:0,rank:999,quizzesDone:0,studyMins:0});
+        }
+        setAuthLoading(false);
+      });
+    };
+    init();
     return ()=>unsub();
   },[]);
   const [authUser,setAuthUser]=useState(null);
@@ -3041,7 +3047,7 @@ export default function App(){
   else if(tab==="messages") content=<MessagesScreen/>;
   else if(tab==="ranks")    content=<RanksScreen currentUid={authUser?.uid}/>;
   else if(tab==="dashboard") content=<DashboardScreen score={score} rank={rank} streak={streak} accuracy={accuracy} userStats={userStats} uid={authUser?.uid} onBack={()=>setTab("home")}/>;
-  else content=<ProfileScreen score={score} rank={rank} streak={streak} accuracy={accuracy} xp={xp} level={level} kb={kb} addQuestion={addQuestion} onFeynman={()=>setFlow("doubt")} userName={authUser?.displayName||"Student"} userEmail={authUser?.email||""} userPhoto={authUser?.photoURL||""} onSignOut={async()=>{await signOutUser();setAuthUser(null);localStorage.removeItem("bb_auth_token");}} onSignIn={()=>setAuthUser(null)}/>;
+  else content=<ProfileScreen score={score} rank={rank} streak={streak} accuracy={accuracy} xp={xp} level={level} kb={kb} addQuestion={addQuestion} onFeynman={()=>setFlow("doubt")} userName={authUser?.displayName||"Student"} userEmail={authUser?.email||""} userPhoto={authUser?.photoURL||""} onSignOut={async()=>{await signOutUser();setAuthUser(null);localStorage.removeItem("bb_auth_token");}} onSignIn={()=>setAuthUser(null)} userStats={userStats}/>;
 
   // Show loading while checking auth
   if(authLoading) return(
