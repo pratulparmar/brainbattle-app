@@ -781,10 +781,20 @@ function RanksScreen({currentUid}){
   },[currentUid]); // eslint-disable-line
   const top3=data.slice(0,3);
   const rest=data.slice(3);
+  // Safe podium - only render if we have enough data
   const podiumOrder=[top3[1],top3[0],top3[2]];
   const podiumH=[80,110,65];
   const podiumBg=["#E8E8E8","var(--grad)","#FF8C00"];
   const podiumBadge=["🥈","🥇","🥉"];
+
+  // Show loading or empty state
+  if(loading) return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)"}}>
+      <div style={{fontSize:48}}>🏆</div>
+      <div style={{fontSize:16,fontWeight:700,color:"var(--tx)"}}>Loading Rankings...</div>
+    </div>
+  );
+
   return(
     <div style={{minHeight:"100vh",paddingBottom:110,position:"relative"}}>
       <BlobBg/>
@@ -797,11 +807,12 @@ function RanksScreen({currentUid}){
           </div>
         </div>
         <div style={{padding:"0 18px"}}>
+          {top3.length>=3&&(
           <div style={{display:"flex",justifyContent:"center",alignItems:"flex-end",gap:16,marginTop:24,marginBottom:16}}>
-            {podiumOrder.map((p,i)=>(
+            {podiumOrder.map((p,i)=>p&&(
               <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8}}>
                 <div style={{position:"relative"}}>
-                  <div style={{width:64,height:64,borderRadius:"50%",background:p.color+"33",border:"3px solid "+p.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>{p.emoji}</div>
+                  <div style={{width:64,height:64,borderRadius:"50%",background:(p.color||"#667EEA")+"33",border:"3px solid "+(p.color||"#667EEA"),display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>{p.emoji||"🧠"}</div>
                   <div style={{position:"absolute",top:-8,right:-8,width:24,height:24,borderRadius:"50%",background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,boxShadow:"0 2px 8px rgba(0,0,0,.15)"}}>{podiumBadge[i]}</div>
                 </div>
                 <div style={{textAlign:"center"}}>
@@ -2934,8 +2945,6 @@ function DoubtScreen({onBack,userName="Student"}){
 }
 
 export default function App(){
-  const [authUser, setAuthUser] = useState(null);       // Firebase auth user
-  const [authLoading, setAuthLoading] = useState(true); // true until onAuthStateChanged fires
   const [tab,setTab]=useState("home");
   const [flow,setFlow]=useState(null);
   const [questions,setQs]=useState(null);
