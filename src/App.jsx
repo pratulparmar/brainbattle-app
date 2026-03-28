@@ -823,6 +823,7 @@ function RanksScreen({currentUid}){
               </div>
             ))}
           </div>
+          )}
           {rest.map((p,i)=>{
             const isMe=p.name==="You";
             const moved=p.prev-p.rank;
