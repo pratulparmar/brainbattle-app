@@ -2934,6 +2934,8 @@ function DoubtScreen({onBack,userName="Student"}){
 }
 
 export default function App(){
+  const [authUser, setAuthUser] = useState(null);       // Firebase auth user
+  const [authLoading, setAuthLoading] = useState(true); // true until onAuthStateChanged fires
   const [tab,setTab]=useState("home");
   const [flow,setFlow]=useState(null);
   const [questions,setQs]=useState(null);
