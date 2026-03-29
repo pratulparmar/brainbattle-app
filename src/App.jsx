@@ -1654,38 +1654,65 @@ function ResultsScreen({result,questions,onHome,onRetry}){
 /* ══════════════════════════════════════
    FEYNMAN AI TUTOR
 ══════════════════════════════════════ */
-const FEYNMAN_SYSTEM=`You are a hybrid of Richard Feynman (master simplifier) and a Top NEET Ranker (technical expert). Help students master Biology, Physics, and Chemistry for NEET 2026.
+const FEYNMAN_SYSTEM=`You are a hybrid of Richard Feynman (master of intuition) and a Top NEET Faculty Member. Your mission: guide a NEET 2026 aspirant from a 5-year-old's understanding to 720/720 exam-readiness.
 
-YOUR 5-STEP TEACHING LOOP — follow STRICTLY, one step per response:
+━━━ CRITICAL RULE — READ FIRST ━━━
+YOU SEND EXACTLY ONE PHASE PER REPLY, THEN STOP.
+Do NOT write Phase 2 until the user replies to Phase 1.
+Do NOT write Phase 3 until the user answers Phase 2's question.
+This is a HARD constraint. Violating it defeats the entire purpose.
 
-STEP 1 — THE HOOK: Start with a vivid "5-year-old" analogy. NO technical terms yet. End with: "Does this picture make sense? Reply yes to go deeper, or ask me to change the analogy."
+BAD (forbidden): Sending Phase 1 + Phase 2 + Phase 3 all at once.
+GOOD (required): Send Phase 1. Wait. User replies. Send Phase 2. Wait. User answers. Send Phase 3.
 
-STEP 2 — THE NEET BRIDGE (only after user confirms): Bridge the analogy to exact NCERT concepts. Name the precise process, include the formula or diagram reference (e.g., "NCERT Class 11 Bio, Ch 8"), and use correct technical vocabulary. End with: "Active Recall Check: [one conceptual question]" — do NOT move to Step 3 until they answer.
+━━━ THE 4-PHASE LOOP ━━━
 
-STEP 3 — REFINEMENT (only after Step 2 answer): Acknowledge if right/wrong. Add one deeper layer: mechanism, exception, or NEET exam trap. Still use a mini-analogy. End with another Active Recall Check.
+[PHASE 1 — ANALOGICAL INSIGHT]
+Explain using a non-technical, real-life analogy only. Zero formulas. Zero NCERT terms.
+End with EXACTLY this line: "💡 Does this analogy make sense? Reply YES to continue, or tell me how to make it clearer."
+Then STOP. Do not write Phase 2.
 
-STEP 4 — MCQ CHALLENGE (only after Step 3 answer): Give exactly 2 Statement-based MCQs: "Statement 1: [X]. Statement 2: [Y]. Which is/are correct? (A) Only 1  (B) Only 2  (C) Both  (D) Neither". Wait for answers, then explain each option in detail.
+[PHASE 2 — TECHNICAL BREAKDOWN]
+Only after the user replies to Phase 1.
+Transition to the formal NCERT definition. State: the exact chapter and class, SI units, variables, and the primary formula in LaTeX (e.g. $\\vec{v}_{AB} = \\vec{v}_A - \\vec{v}_B$).
+End with EXACTLY this format:
+"🔬 Active Recall Check: [one conceptual question the student must answer]"
+Then STOP. Do not write Phase 3 until they answer.
 
-STEP 5 — TEACHING SNAPSHOT: 3-sentence summary the student can teach to a friend. Format: "Your Snapshot: [analogy recap] + [technical term] + [NEET application]"
+[PHASE 3 — NEET CATCH]
+Only after the student answers Phase 2's question. Acknowledge if correct/incorrect.
+Reveal the specific trap or twist NTA uses. Name the high-yield scenario (e.g. "Rain-Man problem", "River crossing", "Assertion-Reason on sign convention").
+End with another Active Recall Check question.
+Then STOP.
 
-RULES (never break):
-- NCERT FIRST: Only use NCERT facts. Always cite class and chapter.
-- NO PASSIVE READING: If user says "okay/next/continue" without answering — say "I noticed you didn't answer! Try your best — even a wrong answer helps." then repeat the question.
-- SCAFFOLDING: Simple to Technical to Application. Never skip steps.
-- MOBILE-FRIENDLY: Keep each response under 200 words. Use bullets and bold headers.
-- NEET FOCUS: Mention if a concept appeared in a past NEET paper.`;
+[PHASE 4 — KNOWLEDGE CHECK]
+Only after the student answers Phase 3's question.
+Give ONE of these: an Assertion-Reason MCQ or a short calculation.
+Format exactly:
+"📝 Assertion (A): [statement]
+Reason (R): [statement]
+(a) Both A and R are true, and R is the correct explanation of A
+(b) Both A and R are true, but R is NOT the correct explanation
+(c) A is true but R is false
+(d) A is false but R is true"
+Wait for their answer, then explain the correct option in detail.
+
+━━━ CONSTRAINTS ━━━
+• NO PASSIVE READING: If user says "okay / I understand / next / continue" without answering — reply: "I see you haven't answered yet! That's fine — just try your best. A wrong answer teaches more than skipping. [repeat the question]"
+• LATEX: Use $...$ for inline math and $$...$$ for display equations.
+• NCERT ONLY: No engineering-level depth. Cite class and chapter for every fact.
+• MOBILE: Keep each phase under 180 words. Bullets preferred over paragraphs.`;
 
 function FeynmanTutor({onBack, uid=null}){
   const PHASES=[
-    {id:"hook",    label:"Analogy",      icon:"💡", color:"#FF9500"},
-    {id:"bridge",  label:"NEET Bridge",  icon:"🔬", color:"#7C3AED"},
-    {id:"recall",  label:"Active Recall",icon:"🧩", color:"#00B4D8"},
-    {id:"mcq",     label:"MCQ",          icon:"📝", color:"#E91E8C"},
-    {id:"snapshot",label:"Snapshot",     icon:"🎓", color:"#22C55E"},
+    {id:"hook",    label:"Analogy",   icon:"💡", color:"#FF9500"},
+    {id:"bridge",  label:"NCERT",     icon:"🔬", color:"#7C3AED"},
+    {id:"catch",   label:"NEET Catch",icon:"⚡", color:"#E91E8C"},
+    {id:"mcq",     label:"MCQ",       icon:"📝", color:"#22C55E"},
   ];
 
   const [msgs,setMsgs]=useState([
-    {role:"assistant",text:"👋 Hi! I'm your Feynman Tutor.\n\nI'll teach any NEET topic using the **5-step loop**: Analogy → NEET Bridge → Active Recall → MCQ Challenge → Snapshot.\n\n**What topic do you want to master today?**\n\n*(Tip: Try \"Golgi apparatus\", \"Laws of Motion\", \"Photosynthesis\" or anything from NCERT)*"}
+    {role:"assistant",text:"👋 Hi! I'm your **Feynman NEET Tutor**.\n\nI teach using a strict 4-phase loop:\n💡 Analogy → 🔬 NCERT Bridge → ⚡ NEET Catch → 📝 Knowledge Check\n\n**I send one phase at a time and wait for your reply before moving on.**\n\n🎯 What NEET topic do you want to master right now?\n\n*(Try: Relative Velocity, Golgi Apparatus, Acid-Base Titration, Laws of Thermodynamics…)*"}
   ]);
   const [input,setInput]=useState("");
   const [loading,setLoading]=useState(false);
@@ -1694,44 +1721,108 @@ function FeynmanTutor({onBack, uid=null}){
   const [topicStarted,setTopicStarted]=useState(false);
   const [showPaywall,setShowPaywall]=useState(false);
   const [paywallReason,setPaywallReason]=useState("");
+  const [katexReady,setKatexReady]=useState(false);
   const bottomRef=useRef(null);
   const historyRef=useRef([]);
+
+  // Load KaTeX from CDN
+  useEffect(()=>{
+    if(window.katex){ setKatexReady(true); return; }
+    const link=document.createElement("link");
+    link.rel="stylesheet";
+    link.href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css";
+    document.head.appendChild(link);
+    const script=document.createElement("script");
+    script.src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js";
+    script.onload=()=>setKatexReady(true);
+    document.head.appendChild(script);
+  },[]);
 
   useEffect(()=>{
     if(bottomRef.current) bottomRef.current.scrollIntoView({behavior:"smooth"});
   },[msgs,loading]);
 
-  // Detect phase from AI reply keywords
+  // Detect phase progression from AI reply
   const detectPhase=(text)=>{
-    if(/Active Recall Check/i.test(text) && phase<2) return 2;
-    if(/Active Recall Check/i.test(text) && phase>=2) return 2;
-    if(/Statement 1/i.test(text)) return 3;
-    if(/Your Snapshot/i.test(text)||/Teaching Snapshot/i.test(text)) return 4;
-    if(/NEET Bridge/i.test(text)||/NCERT/i.test(text) && phase===1) return 1;
+    if(/Knowledge Check|Assertion.*Reason|📝/i.test(text)) return 3;
+    if(/NEET Catch|Rain.Man|River|Trap|NTA|⚡/i.test(text)) return 2;
+    if(/Active Recall|🔬|NCERT|Chapter|Class 1[12]/i.test(text)) return 1;
     return phase;
   };
+
+  // Render a single line — handles LaTeX $...$ and $$...$$
+  const renderLine=(line, key)=>{
+    const isRecall = /Active Recall Check|🔬/.test(line);
+    const isCatch  = /NEET Catch|⚡/.test(line);
+    const isMCQ    = /📝|Assertion|Reason/.test(line);
+    const isHook   = /Does this analogy|💡/.test(line);
+    const isBullet = line.trim().startsWith("•")||line.trim().startsWith("-")||line.trim().startsWith("*");
+
+    let bg="transparent", border="none", pl=isBullet?14:0;
+    if(isRecall) { bg="#F3F0FF"; border="3px solid #7C3AED"; pl=12; }
+    if(isCatch)  { bg="#FFF8E1"; border="3px solid #FF9500"; pl=12; }
+    if(isMCQ)    { bg="#F0FDF4"; border="3px solid #22C55E"; pl=12; }
+    if(isHook)   { bg="#FFF0F8"; border="3px solid #E91E8C"; pl=12; }
+
+    // Parse LaTeX: split on $$...$$ then $...$
+    const renderMath=(str)=>{
+      if(!katexReady||!window.katex) return str;
+      // Display math $$...$$
+      str=str.replace(/\$\$(.+?)\$\$/g,(_, math)=>{
+        try{ return window.katex.renderToString(math,{displayMode:true,throwOnError:false}); }
+        catch(e){ return `$$${math}$$`; }
+      });
+      // Inline math $...$
+      str=str.replace(/\$([^\$]+?)\$/g,(_, math)=>{
+        try{ return window.katex.renderToString(math,{displayMode:false,throwOnError:false}); }
+        catch(e){ return `$${math}$`; }
+      });
+      return str;
+    };
+
+    // Bold + italic + math
+    let processed = line
+      .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+      .replace(/\*([^*]+?)\*/g,'<em>$1</em>');
+    processed = renderMath(processed);
+
+    return(
+      <div key={key} style={{
+        marginBottom: isBullet?3:5,
+        marginTop: isRecall||isCatch||isMCQ||isHook ? 6 : 0,
+        padding: isRecall||isCatch||isMCQ||isHook ? `8px ${pl}px` : `0 0 0 ${pl}px`,
+        background:bg,
+        borderLeft:border,
+        borderRadius: isRecall||isCatch||isMCQ||isHook ? 10 : 0,
+        fontSize:13, lineHeight:1.7, color:"var(--tx)",
+      }}
+      dangerouslySetInnerHTML={{__html:processed||"&nbsp;"}}/>
+    );
+  };
+
+  const renderText=(txt)=>txt.split("\n").map((line,i)=>renderLine(line,i));
 
   const send=async()=>{
     const text=input.trim();
     if(!text||loading) return;
 
-    // On first message: check paywall
+    // Paywall check on first message of a topic
     if(!topicStarted){
-      const accessUid = uid || localStorage.getItem("bb_uid");
+      const accessUid=uid||localStorage.getItem("bb_uid");
       if(accessUid){
         try{
-          const {verifyAccess,incrementUsage}=await import("./firebase_utils");
-          const {allowed,reason}=await verifyAccess(accessUid,"feynman");
+          const mod=await import("./firebase_utils");
+          const {allowed,reason}=await mod.verifyAccess(accessUid,"feynman");
           if(!allowed){
             setPaywallReason(reason);
             setShowPaywall(true);
             return;
           }
-          await incrementUsage(accessUid,"feynman");
-        }catch(e){ console.error("Feynman paywall check:",e); }
+          await mod.incrementUsage(accessUid,"feynman");
+        }catch(e){ console.error("Feynman paywall:",e); }
       }
       setTopicStarted(true);
-      setTopic(text.length>40 ? text.slice(0,40)+"…" : text);
+      setTopic(text.length>42?text.slice(0,42)+"…":text);
       setPhase(0);
     }
 
@@ -1747,13 +1838,13 @@ function FeynmanTutor({onBack, uid=null}){
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",
-          max_tokens:1000,
+          max_tokens:600,
           system:FEYNMAN_SYSTEM,
-          messages:historyRef.current
-        })
+          messages:historyRef.current,
+        }),
       });
       const data=await resp.json();
-      const reply=data.content?.find(b=>b.type==="text")?.text||"Sorry, something went wrong. Please try again.";
+      const reply=data.content?.find(b=>b.type==="text")?.text||"Something went wrong. Please try again.";
       historyRef.current=[...historyRef.current,{role:"assistant",content:reply}];
       setMsgs(m=>[...m,{role:"assistant",text:reply}]);
       setPhase(p=>Math.max(p, detectPhase(reply)));
@@ -1763,93 +1854,58 @@ function FeynmanTutor({onBack, uid=null}){
     setLoading(false);
   };
 
-  const renderText=(txt)=>{
-    return txt.split("\n").map((line,i)=>{
-      const isBullet = line.trim().startsWith("•")||line.trim().startsWith("-");
-      const isHeader = line.trim().startsWith("**")&&line.trim().endsWith("**");
-      const isRecall = line.includes("Active Recall Check");
-      const isMCQ    = line.trim().startsWith("📝")||line.trim().startsWith("Statement");
-      const isSnap   = line.trim().startsWith("🎓")||line.includes("Your Snapshot");
-
-      let bg = "transparent";
-      if(isRecall) bg = "linear-gradient(135deg,#EDE9FE,#FDF4FF)";
-      if(isMCQ)    bg = "linear-gradient(135deg,#FFF0F8,#FDF4FF)";
-      if(isSnap)   bg = "linear-gradient(135deg,#F0FDF4,#ECFDF5)";
-
-      const bold=line.replace(/\*\*(.+?)\*\*/g,(_,w)=>`<strong>${w}</strong>`);
-      return(
-        <div key={i} style={{
-          marginBottom:isBullet?3:5,
-          paddingLeft:isBullet?12:0,
-          paddingRight:isRecall||isMCQ||isSnap?10:0,
-          paddingTop:isRecall||isMCQ||isSnap?8:0,
-          paddingBottom:isRecall||isMCQ||isSnap?8:0,
-          marginTop:isRecall||isMCQ||isSnap?6:0,
-          background:bg,
-          borderRadius:isRecall||isMCQ||isSnap?10:0,
-          borderLeft:isRecall?"3px solid #7C3AED":isMCQ?"3px solid #E91E8C":isSnap?"3px solid #22C55E":"none",
-          paddingLeft:isRecall||isMCQ||isSnap?10:isBullet?12:0,
-          fontSize:isHeader?13:13,
-          fontWeight:isHeader?800:400,
-          lineHeight:1.65,
-          color:"var(--tx)"
-        }}
-        dangerouslySetInnerHTML={{__html:bold||"&nbsp;"}}/>
-      );
-    });
-  };
-
-  const suggestions=["Golgi Apparatus","Newton's Laws of Motion","Photosynthesis Light Reactions","DNA Replication","Acid-Base Equilibrium"];
+  const TOPIC_CHIPS=["Relative Velocity","Golgi Apparatus","Photoelectric Effect","DNA Replication","Le Chatelier's Principle"];
 
   return(
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",background:"#F7F4FF"}}>
-      {/* Paywall */}
+
       {showPaywall&&<PaywallModal onClose={()=>{setShowPaywall(false);setPaywallReason("");onBack();}} reason={paywallReason}/>}
 
       {/* Header */}
-      <div style={{background:"linear-gradient(135deg,#7C3AED,#E91E8C)",padding:"52px 16px 14px",flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
-          <button onClick={onBack} style={{background:"rgba(255,255,255,.2)",border:"none",borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16}}>←</button>
-          <div style={{flex:1}}>
-            <div style={{fontSize:18,fontWeight:800,color:"#fff"}}>🧠 Feynman AI Tutor</div>
-            <div style={{fontSize:11,color:"rgba(255,255,255,.75)"}}>
-              {topic ? `📌 ${topic}` : "NEET 2026 — Analogy → NCERT → MCQ"}
+      <div style={{background:"linear-gradient(135deg,#4C1D95,#7C3AED,#E91E8C)",padding:"52px 16px 0",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+          <button onClick={onBack} style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.3)",borderRadius:10,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16,flexShrink:0}}>←</button>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:17,fontWeight:900,color:"#fff",letterSpacing:-.3}}>🧠 Feynman NEET Tutor</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,.7)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              {topic?`📌 ${topic}`:"Analogy → NCERT → NEET Catch → MCQ"}
             </div>
           </div>
-          <div style={{background:"rgba(255,255,255,.18)",borderRadius:10,padding:"4px 10px",border:"1px solid rgba(255,255,255,.3)"}}>
-            <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,.7)"}}>POWERED BY</div>
-            <div style={{fontSize:10,fontWeight:800,color:"#fff"}}>Claude AI</div>
+          <div style={{background:"rgba(255,255,255,.15)",borderRadius:10,padding:"5px 10px",border:"1px solid rgba(255,255,255,.25)",flexShrink:0}}>
+            <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,.6)"}}>POWERED BY</div>
+            <div style={{fontSize:10,fontWeight:900,color:"#fff"}}>Claude AI</div>
           </div>
         </div>
 
-        {/* Phase progress bar */}
-        <div style={{display:"flex",gap:4}}>
-          {PHASES.map((p,i)=>(
-            <div key={p.id} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-              <div style={{width:"100%",height:4,borderRadius:2,background:i<=phase?"rgba(255,255,255,.9)":"rgba(255,255,255,.25)",transition:"background .4s"}}/>
-              <div style={{fontSize:8,fontWeight:700,color:i<=phase?"rgba(255,255,255,.9)":"rgba(255,255,255,.4)",letterSpacing:.3}}>{p.icon}</div>
-            </div>
-          ))}
-        </div>
-        <div style={{display:"flex",justifyContent:"center",marginTop:4}}>
-          <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.8)",background:"rgba(255,255,255,.15)",padding:"2px 10px",borderRadius:10}}>
-            {PHASES[Math.min(phase,4)].icon} {PHASES[Math.min(phase,4)].label}
-          </div>
+        {/* Phase progress */}
+        <div style={{display:"flex",gap:0,marginBottom:0}}>
+          {PHASES.map((p,i)=>{
+            const active=i===Math.min(phase,3);
+            const done=i<phase;
+            return(
+              <div key={p.id} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:10}}>
+                <div style={{width:"100%",height:3,background:done?"rgba(255,255,255,.9)":active?"rgba(255,255,255,.6)":"rgba(255,255,255,.2)",transition:"background .4s",marginBottom:4}}/>
+                <div style={{fontSize:13,opacity:done||active?1:.4,transition:"opacity .3s"}}>{p.icon}</div>
+                <div style={{fontSize:8,fontWeight:700,color:active?"#fff":"rgba(255,255,255,.5)",letterSpacing:.3}}>{p.label}</div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
       {/* Messages */}
-      <div style={{flex:1,overflowY:"auto",padding:"14px 16px 150px"}}>
+      <div style={{flex:1,overflowY:"auto",padding:"14px 16px 160px"}}>
+
         {msgs.length<=1&&(
           <div style={{marginBottom:16}}>
-            <div style={{fontSize:11,fontWeight:700,color:"var(--sub)",marginBottom:8,textAlign:"center",letterSpacing:.5}}>⚡ POPULAR NEET TOPICS</div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:7,justifyContent:"center"}}>
-              {suggestions.map((s,i)=>(
-                <button key={i} onClick={()=>setInput(s)} style={{padding:"7px 13px",borderRadius:20,border:"1.5px solid #C4B5FD",background:"#EDE9FE",color:"#7C3AED",fontSize:12,fontWeight:600,cursor:"pointer"}}>{s}</button>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--sub)",marginBottom:8,textAlign:"center",letterSpacing:.5,textTransform:"uppercase"}}>Popular NEET topics</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:7,justifyContent:"center",marginBottom:12}}>
+              {TOPIC_CHIPS.map((s,i)=>(
+                <button key={i} onClick={()=>setInput(s)} style={{padding:"7px 14px",borderRadius:20,border:"1.5px solid #C4B5FD",background:"#EDE9FE",color:"#7C3AED",fontSize:12,fontWeight:700,cursor:"pointer"}}>{s}</button>
               ))}
             </div>
-            <div style={{marginTop:12,padding:"10px 14px",background:"linear-gradient(135deg,#FFF9E6,#FFFBF0)",borderRadius:14,border:"1px solid #FDE68A",fontSize:11,color:"#92400E",fontWeight:600,textAlign:"center"}}>
-              💡 Free plan: 1 deep-dive topic/day · <span style={{color:"#7C3AED",fontWeight:800}}>Upgrade for unlimited</span>
+            <div style={{padding:"10px 14px",background:"linear-gradient(135deg,#FFF9E6,#FFFBF0)",borderRadius:14,border:"1px solid #FDE68A",fontSize:11,color:"#92400E",fontWeight:600,textAlign:"center"}}>
+              💡 Free: 1 deep-dive/day · <span style={{color:"#7C3AED",fontWeight:800}}>Upgrade for unlimited</span>
             </div>
           </div>
         )}
@@ -1859,19 +1915,19 @@ function FeynmanTutor({onBack, uid=null}){
           return(
             <div key={i} style={{display:"flex",justifyContent:isMe?"flex-end":"flex-start",marginBottom:14,animation:"msgIn .25s ease"}}>
               {!isMe&&(
-                <div style={{width:34,height:34,borderRadius:"50%",background:"linear-gradient(135deg,#7C3AED,#E91E8C)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,marginRight:8,alignSelf:"flex-end",boxShadow:"0 2px 8px rgba(124,58,237,.3)"}}>🧠</div>
+                <div style={{width:34,height:34,borderRadius:"50%",background:"linear-gradient(135deg,#4C1D95,#7C3AED)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,marginRight:8,alignSelf:"flex-end",boxShadow:"0 2px 10px rgba(76,29,149,.4)"}}>🧠</div>
               )}
               <div style={{
-                maxWidth:"83%",
+                maxWidth:"84%",
                 padding:"12px 15px",
-                borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",
+                borderRadius:isMe?"18px 18px 4px 18px":"4px 18px 18px 18px",
                 background:isMe?"linear-gradient(135deg,#7C3AED,#E91E8C)":"#fff",
-                boxShadow:isMe?"0 3px 12px rgba(124,58,237,.3)":"0 2px 12px rgba(0,0,0,.07)",
-                border:isMe?"none":"1px solid #F3F0FF",
+                boxShadow:isMe?"0 3px 14px rgba(124,58,237,.3)":"0 2px 12px rgba(0,0,0,.07)",
+                border:isMe?"none":"1px solid #EDE9FE",
               }}>
                 {isMe
-                  ? <div style={{fontSize:13,color:"#fff",lineHeight:1.55,fontWeight:500}}>{msg.text}</div>
-                  : renderText(msg.text)
+                  ?<div style={{fontSize:13,color:"#fff",lineHeight:1.6,fontWeight:500}}>{msg.text}</div>
+                  :renderText(msg.text)
                 }
               </div>
             </div>
@@ -1880,10 +1936,10 @@ function FeynmanTutor({onBack, uid=null}){
 
         {loading&&(
           <div style={{display:"flex",alignItems:"flex-end",gap:8,marginBottom:12}}>
-            <div style={{width:34,height:34,borderRadius:"50%",background:"linear-gradient(135deg,#7C3AED,#E91E8C)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,boxShadow:"0 2px 8px rgba(124,58,237,.3)"}}>🧠</div>
-            <div style={{padding:"13px 16px",background:"#fff",borderRadius:"18px 18px 18px 4px",boxShadow:"0 2px 12px rgba(0,0,0,.07)",border:"1px solid #F3F0FF"}}>
+            <div style={{width:34,height:34,borderRadius:"50%",background:"linear-gradient(135deg,#4C1D95,#7C3AED)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,boxShadow:"0 2px 10px rgba(76,29,149,.4)"}}>🧠</div>
+            <div style={{padding:"12px 16px",background:"#fff",borderRadius:"4px 18px 18px 18px",boxShadow:"0 2px 12px rgba(0,0,0,.07)",border:"1px solid #EDE9FE"}}>
               <div style={{display:"flex",gap:5,alignItems:"center"}}>
-                {[0,.2,.4].map(d=><div key={d} style={{width:7,height:7,borderRadius:"50%",background:"#C4B5FD",animation:`dotP 1.1s ${d}s ease infinite`}}/>)}
+                {[0,.18,.36].map(d=><div key={d} style={{width:7,height:7,borderRadius:"50%",background:"linear-gradient(135deg,#7C3AED,#E91E8C)",animation:`dotP 1.1s ${d}s ease infinite`}}/>)}
                 <span style={{fontSize:11,color:"#9CA3AF",marginLeft:6,fontWeight:600}}>Feynman is thinking…</span>
               </div>
             </div>
@@ -1892,37 +1948,37 @@ function FeynmanTutor({onBack, uid=null}){
         <div ref={bottomRef}/>
       </div>
 
-      {/* Input bar */}
-      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"min(430px,100vw)",padding:"10px 14px 28px",background:"rgba(247,244,255,.97)",borderTop:"1px solid #EDE9FE",zIndex:20,backdropFilter:"blur(10px)"}}>
+      {/* Input */}
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"min(430px,100vw)",padding:"10px 14px 30px",background:"rgba(247,244,255,.97)",borderTop:"1.5px solid #EDE9FE",zIndex:20,backdropFilter:"blur(12px)"}}>
+        {/* Phase label */}
+        {topicStarted&&(
+          <div style={{display:"flex",justifyContent:"center",marginBottom:8}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,background:"#EDE9FE",borderRadius:20,padding:"4px 14px"}}>
+              <span style={{fontSize:13}}>{PHASES[Math.min(phase,3)].icon}</span>
+              <span style={{fontSize:11,fontWeight:800,color:"#7C3AED"}}>{PHASES[Math.min(phase,3)].label}</span>
+              <span style={{fontSize:10,color:"#9CA3AF"}}>Phase {Math.min(phase,3)+1}/4</span>
+            </div>
+          </div>
+        )}
         <div style={{display:"flex",gap:10,alignItems:"center"}}>
           <input
             value={input}
             onChange={e=>setInput(e.target.value)}
             onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()}
-            placeholder={topicStarted?"Reply or answer the question…":"Enter a topic to master (e.g. Mitosis)"}
-            style={{flex:1,padding:"12px 16px",borderRadius:22,border:"1.5px solid #C4B5FD",background:"#fff",fontSize:13,fontFamily:"var(--font)",outline:"none",color:"var(--tx)",boxShadow:"0 2px 8px rgba(124,58,237,.08)"}}
+            placeholder={topicStarted?"Answer or ask a question…":"Name a NEET topic to master…"}
+            style={{flex:1,padding:"12px 16px",borderRadius:22,border:"1.5px solid #C4B5FD",background:"#fff",fontSize:13,fontFamily:"var(--font)",outline:"none",color:"var(--tx)",boxShadow:"0 2px 8px rgba(124,58,237,.1)"}}
           />
           <button
             onClick={send}
             disabled={loading||!input.trim()}
-            style={{width:44,height:44,borderRadius:"50%",background:loading||!input.trim()?"#E9D5FF":"linear-gradient(135deg,#7C3AED,#E91E8C)",border:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0,boxShadow:loading?"none":"0 4px 14px rgba(124,58,237,.4)",transition:"all .2s",cursor:loading||!input.trim()?"not-allowed":"pointer"}}
+            style={{width:46,height:46,borderRadius:"50%",background:loading||!input.trim()?"#DDD6FE":"linear-gradient(135deg,#7C3AED,#E91E8C)",border:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:19,flexShrink:0,boxShadow:loading||!input.trim()?"none":"0 4px 16px rgba(124,58,237,.45)",transition:"all .2s",cursor:loading||!input.trim()?"not-allowed":"pointer"}}
           >➤</button>
         </div>
-        {topicStarted&&phase<4&&(
-          <div style={{display:"flex",gap:6,justifyContent:"center",marginTop:8}}>
-            {PHASES.map((p,i)=>(
-              <div key={p.id} style={{display:"flex",alignItems:"center",gap:3,opacity:i<=phase?1:0.35,transition:"opacity .3s"}}>
-                <span style={{fontSize:10}}>{p.icon}</span>
-                <span style={{fontSize:9,fontWeight:700,color:i===phase?"#7C3AED":"var(--sub)"}}>{p.label}</span>
-                {i<4&&<span style={{fontSize:9,color:"#D1D5DB"}}>›</span>}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
 }
+
 
 
 /* ══════════════════════════════════════
