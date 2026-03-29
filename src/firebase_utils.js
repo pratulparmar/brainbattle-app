@@ -36,15 +36,24 @@ setPersistence(auth, browserLocalPersistence).catch(console.error);
 
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
-const isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
 
+// Popup-first strategy: works on Brave, Chrome, Safari mobile.
+// Falls back to redirect only if popup is explicitly blocked by the browser.
 export async function signInWithGoogle() {
-  if (isMobile) {
-    await signInWithRedirect(auth, provider);
-    return null;
-  } else {
+  try {
     const result = await signInWithPopup(auth, provider);
     return result.user;
+  } catch (err) {
+    if (
+      err.code === "auth/popup-blocked" ||
+      err.code === "auth/popup-closed-by-user" ||
+      err.code === "auth/cancelled-popup-request"
+    ) {
+      // Popup blocked — fall back to redirect
+      await signInWithRedirect(auth, provider);
+      return null; // page reloads; onAuthStateChanged handles user after redirect
+    }
+    throw err;
   }
 }
 
