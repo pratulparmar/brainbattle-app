@@ -3184,10 +3184,10 @@ export default function App(){
           }
           setFlow("results");
         }}/>;
-  else if(flow==="results"&&result) content=<ResultsScreen result={result} questions={questions} onHome={goHome} onRetry={()=>setFlow("loading")}/>;
+  else if(flow==="results"&&result) content=<ResultsScreen result={result} questions={questions} onHome={goHome} onRetry={()=>startQuiz(quizSubject,quizChapter)}/>;
   else if(flow==="feynman") content=<FeynmanTutor onBack={()=>{setFlow(null);setTab("profile");}}/>;
   else if(flow==="neet_mock") content=<NeetMockScreen onBack={goHome} onFinish={r=>{setMockResult(r);setFlow("mock_results");}}/>;
-  else if(flow==="mock_results"&&mockResult) content=<NeetMockResults result={mockResult} onHome={goHome} onRetry={()=>setFlow("neet_mock")}/>;
+  else if(flow==="mock_results"&&mockResult) content=<NeetMockResults result={mockResult} onHome={goHome} onRetry={()=>startMock()}/>;
   else if(flow==="doubt") content=<DoubtScreen onBack={()=>{setFlow(null);setTab("home");}} userName={authUser?.displayName?.split(" ")[0]||"Student"}/>;
   else if(flow==="browse"&&browseSubject) content=<ChapterSelectScreen subject={browseSubject} onChapter={ch=>startQuiz(browseSubject,ch)} onBack={()=>{setFlow(null);setBrowseSubject(null);}}/>;
   else if(tab==="home")     content=<HomeScreen onQuiz={startQuiz} onMock={startMock} onBrowse={subj=>{setBrowseSubject(subj);setFlow("browse");}} onDoubt={()=>setFlow("doubt")} score={score} rank={rank} streak={streak} accuracy={accuracy}/>;
