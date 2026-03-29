@@ -2876,7 +2876,8 @@ function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}
     // Paywall check on first topic
     if(!topicStarted){
       const accessUid=uid||localStorage.getItem("bb_uid");
-      if(accessUid){
+      const devMode=localStorage.getItem("bb_dev_mode")==="true";
+      if(accessUid && !devMode){
         try{
           const mod=await import("./firebase_utils");
           const {allowed,reason}=await mod.verifyAccess(accessUid,"feynman");
@@ -2890,19 +2891,17 @@ function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}
     }
 
     setFInput("");
-    const userMsg={role:"user",text};
-    setMsgs(m=>[...m,userMsg]);
+    // Add user message + empty assistant placeholder in one update (no duplicate)
+    const PLACEHOLDER_ID = Date.now();
+    setMsgs(m=>[...m,{role:"user",text},{role:"assistant",text:"",id:PLACEHOLDER_ID}]);
     setFLoading(true);
 
-    // Build question for RAG backend
-    // First turn: inject Feynman context so the AI knows the teaching format
-    // Subsequent turns: pass conversation history so AI maintains the loop
     const isFirstTurn = fHistoryRef.current.length===0;
     const questionToSend = isFirstTurn
       ? `[DEEP_DIVE_TEACHING_MODE]\n${FEYNMAN_CONTEXT}\n\n---\nStudent wants to learn: ${text}`
       : text;
 
-    fHistoryRef.current=[...fHistoryRef.current,{role:"user",content:isFirstTurn?text:text}];
+    fHistoryRef.current=[...fHistoryRef.current,{role:"user",content:text}];
 
     let full="";
     try{
@@ -2911,7 +2910,7 @@ function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}
         headers:{"Content-Type":"application/json","X-App-Token":APP_TOKEN},
         body:JSON.stringify({
           question: questionToSend,
-          history:  fHistoryRef.current.slice(0,-1), // all but last (we just added it)
+          history:  fHistoryRef.current.slice(0,-1),
         }),
       });
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -2925,25 +2924,29 @@ function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}
           if(!line.startsWith("data: ")) continue;
           try{
             const evt=JSON.parse(line.slice(6));
-            if(evt.type==="token"){ full+=evt.text; setMsgs(m=>[...m.slice(0,-0),{...m[m.length-1]||{},role:"assistant",text:full}]); }
+            if(evt.type==="token"){
+              full+=evt.text;
+              // Update the placeholder message in-place — no new message created
+              setMsgs(m=>m.map(msg=>msg.id===PLACEHOLDER_ID?{...msg,text:full}:msg));
+            }
             else if(evt.type==="done"){
               fHistoryRef.current=[...fHistoryRef.current,{role:"assistant",content:full}];
               setPhase(p=>Math.max(p,detectPhase(full)));
             }
-            else if(evt.type==="error"){ full="⚠️ "+evt.text; }
+            else if(evt.type==="error"){
+              full="⚠️ "+evt.text;
+              setMsgs(m=>m.map(msg=>msg.id===PLACEHOLDER_ID?{...msg,text:full}:msg));
+            }
           }catch(e){}
         }
       }
-      if(!full) throw new Error("empty");
+      if(!full){
+        setMsgs(m=>m.map(msg=>msg.id===PLACEHOLDER_ID?{...msg,text:"⚠️ No response received. Please try again."}:msg));
+      }
     }catch(e){
       setFLoading(false);
-      setMsgs(m=>[...m,{role:"assistant",text:"⚠️ Could not reach the server. Please check your connection."}]);
-      return;
+      setMsgs(m=>m.map(msg=>msg.id===PLACEHOLDER_ID?{...msg,text:"⚠️ Could not reach the server. Please check your connection."}:msg));
     }
-    setMsgs(m=>{
-      const withoutStreaming=m.filter(x=>!(x.role==="assistant"&&x.text===full&&m.indexOf(x)>0));
-      return [...withoutStreaming,{role:"assistant",text:full}];
-    });
   };
 
   const pastelColors=[
@@ -3012,18 +3015,28 @@ function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}
           </div>
         )}
 
-        {/* Mode toggle */}
-        <div style={{display:"flex",background:"rgba(124,58,237,.08)",borderRadius:16,padding:4,gap:4,marginBottom:0}}>
-          {[
-            {id:"doubt",  label:"🔍 Ask Doubt",   active:mode==="doubt"},
-            {id:"feynman",label:"🧠 Deep Dive",    active:mode==="feynman"},
-          ].map(m=>(
-            <button key={m.id} onClick={()=>setMode(m.id)} style={{flex:1,padding:"9px 4px",borderRadius:12,border:"none",fontSize:12,fontWeight:800,cursor:"pointer",transition:"all .2s",
-              background:m.active?(mode==="feynman"?"rgba(255,255,255,.22)":"#fff"):"transparent",
-              color:m.active?(mode==="feynman"?"#fff":"#7C3AED"):"#9CA3AF",
-              boxShadow:m.active&&mode!=="feynman"?"0 2px 10px rgba(124,58,237,.15)":"none",
-            }}>{m.label}</button>
-          ))}
+        {/* Mode toggle — big bright tabs */}
+        <div style={{display:"flex",gap:8,padding:"10px 0 4px"}}>
+          <button onClick={()=>setMode("doubt")} style={{flex:1,padding:"13px 8px",borderRadius:16,border:"none",fontSize:13,fontWeight:900,cursor:"pointer",transition:"all .2s",
+            background:mode==="doubt"?"linear-gradient(135deg,#667EEA,#764BA2)":"rgba(255,255,255,.15)",
+            color:mode==="doubt"?"#fff":"rgba(255,255,255,.55)",
+            boxShadow:mode==="doubt"?"0 4px 16px rgba(102,126,234,.5)":"none",
+            transform:mode==="doubt"?"scale(1.03)":"scale(1)",
+          }}>
+            <div style={{fontSize:20,marginBottom:3}}>🔍</div>
+            <div>Ask Doubt</div>
+            <div style={{fontSize:9,fontWeight:600,opacity:.8,marginTop:1}}>Instant NCERT answer</div>
+          </button>
+          <button onClick={()=>setMode("feynman")} style={{flex:1,padding:"13px 8px",borderRadius:16,border:"none",fontSize:13,fontWeight:900,cursor:"pointer",transition:"all .2s",
+            background:mode==="feynman"?"linear-gradient(135deg,#E91E8C,#7C3AED)":"rgba(255,255,255,.15)",
+            color:mode==="feynman"?"#fff":"rgba(255,255,255,.55)",
+            boxShadow:mode==="feynman"?"0 4px 16px rgba(233,30,140,.5)":"none",
+            transform:mode==="feynman"?"scale(1.03)":"scale(1)",
+          }}>
+            <div style={{fontSize:20,marginBottom:3}}>🧠</div>
+            <div>Deep Dive</div>
+            <div style={{fontSize:9,fontWeight:600,opacity:.8,marginTop:1}}>4-phase Feynman loop</div>
+          </button>
         </div>
       </div>
 
@@ -3148,11 +3161,24 @@ function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}
           {/* Feynman input */}
           <div style={{padding:"10px 14px 28px",background:"rgba(247,244,255,.97)",borderTop:"1.5px solid #EDE9FE",backdropFilter:"blur(12px)"}}>
             {topicStarted&&(
-              <div style={{display:"flex",justifyContent:"center",marginBottom:8}}>
-                <div style={{display:"flex",alignItems:"center",gap:5,background:"#EDE9FE",borderRadius:20,padding:"3px 12px"}}>
-                  <span style={{fontSize:12}}>{FEYNMAN_PHASES[Math.min(phase,3)].icon}</span>
-                  <span style={{fontSize:11,fontWeight:800,color:"#7C3AED"}}>{FEYNMAN_PHASES[Math.min(phase,3)].label}</span>
-                  <span style={{fontSize:10,color:"#9CA3AF"}}>Phase {Math.min(phase,3)+1}/4</span>
+              <div style={{marginBottom:8}}>
+                <div style={{display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap"}}>
+                  {FEYNMAN_PHASES.map((p,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:20,
+                      background:i===Math.min(phase,3)?"linear-gradient(135deg,#7C3AED,#E91E8C)":i<phase?"#D1FAE5":"#F3F4F6",
+                      opacity:i>phase?0.45:1,transition:"all .3s",
+                    }}>
+                      <span style={{fontSize:11}}>{p.icon}</span>
+                      <span style={{fontSize:10,fontWeight:800,color:i===Math.min(phase,3)?"#fff":i<phase?"#065F46":"#6B7280"}}>{p.label}</span>
+                      {i<phase&&<span style={{fontSize:10,color:"#065F46"}}>✓</span>}
+                    </div>
+                  ))}
+                </div>
+                {/* Quick phase nudges */}
+                <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap",justifyContent:"center"}}>
+                  <button onClick={()=>setFInput("yes")} style={{padding:"5px 12px",borderRadius:14,border:"1.5px solid #C4B5FD",background:"#EDE9FE",color:"#7C3AED",fontSize:11,fontWeight:700,cursor:"pointer"}}>✅ Yes, continue</button>
+                  <button onClick={()=>setFInput("I don't know, can you give a hint?")} style={{padding:"5px 12px",borderRadius:14,border:"1.5px solid #FCA5A5",background:"#FEF2F2",color:"#DC2626",fontSize:11,fontWeight:700,cursor:"pointer"}}>💡 Give hint</button>
+                  <button onClick={()=>setFInput("Skip to next phase")} style={{padding:"5px 12px",borderRadius:14,border:"1.5px solid #D1FAE5",background:"#F0FDF4",color:"#059669",fontSize:11,fontWeight:700,cursor:"pointer"}}>⏭ Next phase</button>
                 </div>
               </div>
             )}
@@ -3196,20 +3222,23 @@ export default function App(){
   const [quizSubject,  setQuizSubject]  = useState(null);
   const [quizChapter,  setQuizChapter]  = useState(null);
   const [browseSubject,setBrowseSubject] = useState(null);
+  // Dev mode: set localStorage.bb_dev_mode = "true" to bypass all paywalls during testing
+  const DEV_MODE = localStorage.getItem("bb_dev_mode") === "true";
+
   const startQuiz = async (subj=null, ch=null) => {
     const uid = authUser?.uid || null;
-    // Optimistic check using in-memory state (instant UI response)
-    if (!userUsage.is_premium && userUsage.dailyQuizzesCount >= 3) {
-      setPaywallReason("You've used all 3 free quizzes for today. Upgrade to practice without limits.");
-      setShowPaywall(true);
-      return;
-    }
-    // Authoritative check against Firestore (prevents localStorage spoofing)
-    const { allowed, reason } = await verifyAccess(uid, "quiz");
-    if (!allowed) {
-      setPaywallReason(reason);
-      setShowPaywall(true);
-      return;
+    if (!DEV_MODE) {
+      if (!userUsage.is_premium && userUsage.dailyQuizzesCount >= 3) {
+        setPaywallReason("You've used all 3 free quizzes for today. Upgrade to practice without limits.");
+        setShowPaywall(true);
+        return;
+      }
+      const { allowed, reason } = await verifyAccess(uid, "quiz");
+      if (!allowed) {
+        setPaywallReason(reason);
+        setShowPaywall(true);
+        return;
+      }
     }
     // Access granted — write usage to Firestore immediately
     await incrementUsage(uid, "quiz");
@@ -3222,18 +3251,18 @@ export default function App(){
 
   const startMock = async () => {
     const uid = authUser?.uid || null;
-    // Optimistic check
-    if (!userUsage.is_premium && userUsage.hasAttemptedMock) {
-      setPaywallReason("Free plan includes 1 mock test. Upgrade for unlimited NEET mock access.");
-      setShowPaywall(true);
-      return;
-    }
-    // Authoritative Firestore check
-    const { allowed, reason } = await verifyAccess(uid, "mock");
-    if (!allowed) {
-      setPaywallReason(reason);
-      setShowPaywall(true);
-      return;
+    if (!DEV_MODE) {
+      if (!userUsage.is_premium && userUsage.hasAttemptedMock) {
+        setPaywallReason("Free plan includes 1 mock test. Upgrade for unlimited NEET mock access.");
+        setShowPaywall(true);
+        return;
+      }
+      const { allowed, reason } = await verifyAccess(uid, "mock");
+      if (!allowed) {
+        setPaywallReason(reason);
+        setShowPaywall(true);
+        return;
+      }
     }
     // Access granted
     await incrementUsage(uid, "mock");
