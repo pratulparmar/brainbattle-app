@@ -2577,13 +2577,18 @@ function LoginScreen({onLogin}){
     setError("");
     try{
       const result = await signInWithGoogle();
-      // Mobile: result is null, redirect happens, onAuthStateChanged fires on return
-      // Desktop: result is the user, call onLogin directly
       if(result) onLogin(result);
-      // On mobile - page will redirect, no action needed
+      // null = either redirect is in progress (page will reload)
+      // or user cancelled — just reset loading
+      else setLoading(false);
     }catch(e){
       console.error("Sign in error:",e);
-      setError("Sign-in failed: "+e.message);
+      // auth/popup-blocked: popup was blocked by browser
+      if(e.code==="auth/popup-blocked"){
+        setError("⚠️ Popups are blocked. Please allow popups for this site and try again.");
+      } else {
+        setError("Sign-in failed. Please try again.");
+      }
       setLoading(false);
     }
   };
