@@ -83,17 +83,134 @@ export async function ensureUserDoc(user) {
   const snap = await getDoc(ref);
   if (!snap.exists()) {
     await setDoc(ref, {
-      uid:       user.uid,
-      name:      user.displayName || "Student",
-      email:     user.email || "",
-      photoURL:  user.photoURL || "",
-      stats:     DEFAULT_STATS,
+      uid:        user.uid,
+      name:       user.displayName || "Student",
+      email:      user.email || "",
+      photoURL:   user.photoURL || "",
+      is_premium: false,
+      stats:      DEFAULT_STATS,
+      usage: {
+        dailyQuizzesCount:  0,
+        lastQuizDate:       "",
+        hasAttemptedMock:   false,
+        feynmanTopicsToday: 0,
+        lastFeynmanDate:    "",
+      },
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
   } else {
+    // Patch old docs that don't have usage/is_premium fields yet
+    const data = snap.data();
+    const patches = {};
+    if (data.is_premium === undefined) patches.is_premium = false;
+    if (!data.usage) patches.usage = { dailyQuizzesCount: 0, lastQuizDate: "", hasAttemptedMock: false, feynmanTopicsToday: 0, lastFeynmanDate: "" };
+    if (Object.keys(patches).length > 0) await updateDoc(ref, patches);
     await updateDoc(ref, { updatedAt: serverTimestamp() });
   }
+}
+
+// ── Usage & Access ─────────────────────────────────────────────────────────
+
+/**
+ * Fetch the current user's usage + premium status from Firestore.
+ * Called on login and page load — cannot be spoofed by clearing localStorage.
+ */
+export async function getUserUsage(uid) {
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    if (snap.exists()) {
+      const data  = snap.data();
+      const usage = data.usage || {};
+      const today = new Date().toDateString();
+      // Reset daily quiz count if it's a new day
+      const dailyQuizzesCount = usage.lastQuizDate === today
+        ? (usage.dailyQuizzesCount || 0) : 0;
+      return {
+        dailyQuizzesCount,
+        hasAttemptedMock: usage.hasAttemptedMock || false,
+        is_premium:       data.is_premium || false,
+      };
+    }
+  } catch (e) { console.error("getUserUsage:", e); }
+  return { dailyQuizzesCount: 0, hasAttemptedMock: false, is_premium: false };
+}
+
+/**
+ * Check whether a user is allowed to start an activity.
+ * Source of truth is Firestore — not localStorage.
+ * Returns { allowed: bool, reason: string }
+ */
+export async function verifyAccess(uid, activityType) {
+  // Guest users (no uid) — allow but don't track
+  if (!uid) return { allowed: true, reason: "" };
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    if (!snap.exists()) return { allowed: true, reason: "" };
+    const data  = snap.data();
+    // Premium bypasses everything
+    if (data.is_premium === true) return { allowed: true, reason: "" };
+    const usage = data.usage || {};
+    const today = new Date().toDateString();
+    if (activityType === "quiz") {
+      const count = usage.lastQuizDate === today ? (usage.dailyQuizzesCount || 0) : 0;
+      if (count >= 3) return { allowed: false, reason: "You've used all 3 free quizzes for today." };
+    }
+    if (activityType === "mock") {
+      if (usage.hasAttemptedMock === true)
+        return { allowed: false, reason: "Free plan includes 1 mock test. Upgrade for unlimited access." };
+    }
+    if (activityType === "feynman") {
+      const lastDate  = usage.lastFeynmanDate || "";
+      const todayCount = lastDate === today ? (usage.feynmanTopicsToday || 0) : 0;
+      if (todayCount >= 1)
+        return { allowed: false, reason: "Free plan includes 1 Feynman deep-dive per day. Upgrade to Doctor Lite for unlimited sessions." };
+    }
+    return { allowed: true, reason: "" };
+  } catch (e) {
+    console.error("verifyAccess:", e);
+    return { allowed: true, reason: "" }; // fail open — don't block on network error
+  }
+}
+
+/**
+ * Increment usage counter in Firestore immediately when a test starts.
+ * Called AFTER verifyAccess returns true.
+ */
+export async function incrementUsage(uid, type) {
+  if (!uid) return;
+  try {
+    const ref   = doc(db, "users", uid);
+    const today = new Date().toDateString();
+    if (type === "quiz") {
+      // Read current count first so we can handle day-reset correctly
+      const snap  = await getDoc(ref);
+      const usage = snap.exists() ? (snap.data().usage || {}) : {};
+      const currentCount = usage.lastQuizDate === today ? (usage.dailyQuizzesCount || 0) : 0;
+      await updateDoc(ref, {
+        "usage.dailyQuizzesCount": currentCount + 1,
+        "usage.lastQuizDate":      today,
+        "updatedAt":               serverTimestamp(),
+      });
+    }
+    if (type === "mock") {
+      await updateDoc(ref, {
+        "usage.hasAttemptedMock": true,
+        "updatedAt":              serverTimestamp(),
+      });
+    }
+    if (type === "feynman") {
+      const snap  = await getDoc(ref);
+      const usage = snap.exists() ? (snap.data().usage || {}) : {};
+      const today = new Date().toDateString();
+      const todayCount = usage.lastFeynmanDate === today ? (usage.feynmanTopicsToday || 0) : 0;
+      await updateDoc(ref, {
+        "usage.feynmanTopicsToday": todayCount + 1,
+        "usage.lastFeynmanDate":    today,
+        "updatedAt":                serverTimestamp(),
+      });
+    }
+  } catch (e) { console.error("incrementUsage:", e); }
 }
 
 export async function getUserStats(uid) {

@@ -1,6 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useRef } from "react";
-import { signInWithGoogle, signOutUser, onAuthChange, checkRedirectResult, getUserStats, saveQuizResult, getLeaderboard, ensureUserDoc } from "./firebase_utils";
+import { signInWithGoogle, signOutUser, onAuthChange, checkRedirectResult, getUserStats, getUserUsage, verifyAccess, incrementUsage, saveQuizResult, getLeaderboard, ensureUserDoc } from "./firebase_utils";
 import { QB, getRandom, getChaptersForSubject, QB_STATS } from "./QB.js";
 
 /* ══════════════════════════════════════
@@ -1654,43 +1654,93 @@ function ResultsScreen({result,questions,onHome,onRetry}){
 /* ══════════════════════════════════════
    FEYNMAN AI TUTOR
 ══════════════════════════════════════ */
-const FEYNMAN_SYSTEM=`You are a master explainer who channels Richard Feynman's ability to break complex ideas into simple, intuitive truths.
-Your goal is to help the user deeply understand any topic using the Feynman Learning Loop:
-• Simplify → Identify gaps → Question assumptions → Refine understanding → Apply the concept → Compress into a teachable insight.
+const FEYNMAN_SYSTEM=`You are a hybrid of Richard Feynman (master simplifier) and a Top NEET Ranker (technical expert). Help students master Biology, Physics, and Chemistry for NEET 2026.
 
-Follow this exact output structure:
-**Step 1 — Simple Explanation:** Explain like the student is 10 years old. Use one vivid analogy. No jargon.
-**Step 2 — Confusion Check:** List 2–3 common misconceptions students have about this topic.
-**Step 3 — Refinement Cycle:** Give a slightly deeper explanation that adds one layer of physics intuition. Still use analogies.
-**Step 4 — Understanding Challenge:** Ask 3 targeted questions the student must answer to prove they understood.
-**Step 5 — Teaching Snapshot:** Write a 3-sentence "explain it to a friend" version the student can memorize.
+YOUR 5-STEP TEACHING LOOP — follow STRICTLY, one step per response:
 
-Rules:
-- Use analogies in every explanation
-- Define every technical term simply before using it
-- Each refinement must be clearer and more intuitive than the last
-- Prioritize understanding over recall
-- Keep responses focused and mobile-friendly (no very long paragraphs)`;
+STEP 1 — THE HOOK: Start with a vivid "5-year-old" analogy. NO technical terms yet. End with: "Does this picture make sense? Reply yes to go deeper, or ask me to change the analogy."
 
-function FeynmanTutor({onBack}){
+STEP 2 — THE NEET BRIDGE (only after user confirms): Bridge the analogy to exact NCERT concepts. Name the precise process, include the formula or diagram reference (e.g., "NCERT Class 11 Bio, Ch 8"), and use correct technical vocabulary. End with: "Active Recall Check: [one conceptual question]" — do NOT move to Step 3 until they answer.
+
+STEP 3 — REFINEMENT (only after Step 2 answer): Acknowledge if right/wrong. Add one deeper layer: mechanism, exception, or NEET exam trap. Still use a mini-analogy. End with another Active Recall Check.
+
+STEP 4 — MCQ CHALLENGE (only after Step 3 answer): Give exactly 2 Statement-based MCQs: "Statement 1: [X]. Statement 2: [Y]. Which is/are correct? (A) Only 1  (B) Only 2  (C) Both  (D) Neither". Wait for answers, then explain each option in detail.
+
+STEP 5 — TEACHING SNAPSHOT: 3-sentence summary the student can teach to a friend. Format: "Your Snapshot: [analogy recap] + [technical term] + [NEET application]"
+
+RULES (never break):
+- NCERT FIRST: Only use NCERT facts. Always cite class and chapter.
+- NO PASSIVE READING: If user says "okay/next/continue" without answering — say "I noticed you didn't answer! Try your best — even a wrong answer helps." then repeat the question.
+- SCAFFOLDING: Simple to Technical to Application. Never skip steps.
+- MOBILE-FRIENDLY: Keep each response under 200 words. Use bullets and bold headers.
+- NEET FOCUS: Mention if a concept appeared in a past NEET paper.`;
+
+function FeynmanTutor({onBack, uid=null}){
+  const PHASES=[
+    {id:"hook",    label:"Analogy",      icon:"💡", color:"#FF9500"},
+    {id:"bridge",  label:"NEET Bridge",  icon:"🔬", color:"#7C3AED"},
+    {id:"recall",  label:"Active Recall",icon:"🧩", color:"#00B4D8"},
+    {id:"mcq",     label:"MCQ",          icon:"📝", color:"#E91E8C"},
+    {id:"snapshot",label:"Snapshot",     icon:"🎓", color:"#22C55E"},
+  ];
+
   const [msgs,setMsgs]=useState([
-    {role:"assistant",text:"👋 Hi! I'm your Feynman Tutor — I'll teach you anything using simple stories, analogies and questions.\n\n**What topic do you want to master?** And how well do you understand it right now?\n\n*(Example: \"Torque\" — I know nothing / I've heard of it / I understand basics)*"}
+    {role:"assistant",text:"👋 Hi! I'm your Feynman Tutor.\n\nI'll teach any NEET topic using the **5-step loop**: Analogy → NEET Bridge → Active Recall → MCQ Challenge → Snapshot.\n\n**What topic do you want to master today?**\n\n*(Tip: Try \"Golgi apparatus\", \"Laws of Motion\", \"Photosynthesis\" or anything from NCERT)*"}
   ]);
   const [input,setInput]=useState("");
   const [loading,setLoading]=useState(false);
+  const [phase,setPhase]=useState(0);
+  const [topic,setTopic]=useState("");
+  const [topicStarted,setTopicStarted]=useState(false);
+  const [showPaywall,setShowPaywall]=useState(false);
+  const [paywallReason,setPaywallReason]=useState("");
   const bottomRef=useRef(null);
   const historyRef=useRef([]);
 
-  useEffect(()=>{if(bottomRef.current)bottomRef.current.scrollIntoView({behavior:"smooth"});},[msgs,loading]);
+  useEffect(()=>{
+    if(bottomRef.current) bottomRef.current.scrollIntoView({behavior:"smooth"});
+  },[msgs,loading]);
+
+  // Detect phase from AI reply keywords
+  const detectPhase=(text)=>{
+    if(/Active Recall Check/i.test(text) && phase<2) return 2;
+    if(/Active Recall Check/i.test(text) && phase>=2) return 2;
+    if(/Statement 1/i.test(text)) return 3;
+    if(/Your Snapshot/i.test(text)||/Teaching Snapshot/i.test(text)) return 4;
+    if(/NEET Bridge/i.test(text)||/NCERT/i.test(text) && phase===1) return 1;
+    return phase;
+  };
 
   const send=async()=>{
     const text=input.trim();
     if(!text||loading) return;
+
+    // On first message: check paywall
+    if(!topicStarted){
+      const accessUid = uid || localStorage.getItem("bb_uid");
+      if(accessUid){
+        try{
+          const {verifyAccess,incrementUsage}=await import("./firebase_utils");
+          const {allowed,reason}=await verifyAccess(accessUid,"feynman");
+          if(!allowed){
+            setPaywallReason(reason);
+            setShowPaywall(true);
+            return;
+          }
+          await incrementUsage(accessUid,"feynman");
+        }catch(e){ console.error("Feynman paywall check:",e); }
+      }
+      setTopicStarted(true);
+      setTopic(text.length>40 ? text.slice(0,40)+"…" : text);
+      setPhase(0);
+    }
+
     setInput("");
     const userMsg={role:"user",text};
     setMsgs(m=>[...m,userMsg]);
     historyRef.current=[...historyRef.current,{role:"user",content:text}];
     setLoading(true);
+
     try{
       const resp=await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
@@ -1706,49 +1756,100 @@ function FeynmanTutor({onBack}){
       const reply=data.content?.find(b=>b.type==="text")?.text||"Sorry, something went wrong. Please try again.";
       historyRef.current=[...historyRef.current,{role:"assistant",content:reply}];
       setMsgs(m=>[...m,{role:"assistant",text:reply}]);
+      setPhase(p=>Math.max(p, detectPhase(reply)));
     }catch(e){
       setMsgs(m=>[...m,{role:"assistant",text:"⚠️ Connection issue. Check your internet and try again."}]);
     }
     setLoading(false);
   };
 
-  // Render markdown-lite: bold, bullet points
   const renderText=(txt)=>{
     return txt.split("\n").map((line,i)=>{
+      const isBullet = line.trim().startsWith("•")||line.trim().startsWith("-");
+      const isHeader = line.trim().startsWith("**")&&line.trim().endsWith("**");
+      const isRecall = line.includes("Active Recall Check");
+      const isMCQ    = line.trim().startsWith("📝")||line.trim().startsWith("Statement");
+      const isSnap   = line.trim().startsWith("🎓")||line.includes("Your Snapshot");
+
+      let bg = "transparent";
+      if(isRecall) bg = "linear-gradient(135deg,#EDE9FE,#FDF4FF)";
+      if(isMCQ)    bg = "linear-gradient(135deg,#FFF0F8,#FDF4FF)";
+      if(isSnap)   bg = "linear-gradient(135deg,#F0FDF4,#ECFDF5)";
+
       const bold=line.replace(/\*\*(.+?)\*\*/g,(_,w)=>`<strong>${w}</strong>`);
-      const isBullet=line.trim().startsWith("•")||line.trim().startsWith("-");
-      return <div key={i} style={{marginBottom:isBullet?3:6,paddingLeft:isBullet?8:0,fontSize:13,lineHeight:1.6,color:"var(--tx)"}} dangerouslySetInnerHTML={{__html:bold||"&nbsp;"}}/>;
+      return(
+        <div key={i} style={{
+          marginBottom:isBullet?3:5,
+          paddingLeft:isBullet?12:0,
+          paddingRight:isRecall||isMCQ||isSnap?10:0,
+          paddingTop:isRecall||isMCQ||isSnap?8:0,
+          paddingBottom:isRecall||isMCQ||isSnap?8:0,
+          marginTop:isRecall||isMCQ||isSnap?6:0,
+          background:bg,
+          borderRadius:isRecall||isMCQ||isSnap?10:0,
+          borderLeft:isRecall?"3px solid #7C3AED":isMCQ?"3px solid #E91E8C":isSnap?"3px solid #22C55E":"none",
+          paddingLeft:isRecall||isMCQ||isSnap?10:isBullet?12:0,
+          fontSize:isHeader?13:13,
+          fontWeight:isHeader?800:400,
+          lineHeight:1.65,
+          color:"var(--tx)"
+        }}
+        dangerouslySetInnerHTML={{__html:bold||"&nbsp;"}}/>
+      );
     });
   };
 
-  const suggestions=["Explain Torque simply","What is Angular Momentum?","Why does a spinning top not fall?","Teach me MOI from scratch"];
+  const suggestions=["Golgi Apparatus","Newton's Laws of Motion","Photosynthesis Light Reactions","DNA Replication","Acid-Base Equilibrium"];
 
   return(
-    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",background:"#F7F8FC"}}>
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",background:"#F7F4FF"}}>
+      {/* Paywall */}
+      {showPaywall&&<PaywallModal onClose={()=>{setShowPaywall(false);setPaywallReason("");onBack();}} reason={paywallReason}/>}
+
       {/* Header */}
       <div style={{background:"linear-gradient(135deg,#7C3AED,#E91E8C)",padding:"52px 16px 14px",flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
           <button onClick={onBack} style={{background:"rgba(255,255,255,.2)",border:"none",borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16}}>←</button>
           <div style={{flex:1}}>
-            <div style={{fontSize:18,fontWeight:800,color:"#fff"}}>🧠 Feynman Tutor</div>
-            <div style={{fontSize:11,color:"rgba(255,255,255,.8)"}}>Learn anything — deeply, intuitively</div>
+            <div style={{fontSize:18,fontWeight:800,color:"#fff"}}>🧠 Feynman AI Tutor</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,.75)"}}>
+              {topic ? `📌 ${topic}` : "NEET 2026 — Analogy → NCERT → MCQ"}
+            </div>
           </div>
-          <div style={{background:"rgba(255,255,255,.2)",borderRadius:10,padding:"4px 10px"}}>
-            <div style={{fontSize:10,fontWeight:700,color:"#fff"}}>Powered by Claude</div>
+          <div style={{background:"rgba(255,255,255,.18)",borderRadius:10,padding:"4px 10px",border:"1px solid rgba(255,255,255,.3)"}}>
+            <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,.7)"}}>POWERED BY</div>
+            <div style={{fontSize:10,fontWeight:800,color:"#fff"}}>Claude AI</div>
+          </div>
+        </div>
+
+        {/* Phase progress bar */}
+        <div style={{display:"flex",gap:4}}>
+          {PHASES.map((p,i)=>(
+            <div key={p.id} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <div style={{width:"100%",height:4,borderRadius:2,background:i<=phase?"rgba(255,255,255,.9)":"rgba(255,255,255,.25)",transition:"background .4s"}}/>
+              <div style={{fontSize:8,fontWeight:700,color:i<=phase?"rgba(255,255,255,.9)":"rgba(255,255,255,.4)",letterSpacing:.3}}>{p.icon}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"flex",justifyContent:"center",marginTop:4}}>
+          <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.8)",background:"rgba(255,255,255,.15)",padding:"2px 10px",borderRadius:10}}>
+            {PHASES[Math.min(phase,4)].icon} {PHASES[Math.min(phase,4)].label}
           </div>
         </div>
       </div>
 
       {/* Messages */}
-      <div style={{flex:1,overflowY:"auto",padding:"14px 16px 140px"}}>
-        {/* Quick suggestions */}
+      <div style={{flex:1,overflowY:"auto",padding:"14px 16px 150px"}}>
         {msgs.length<=1&&(
-          <div style={{marginBottom:14}}>
-            <div style={{fontSize:11,fontWeight:700,color:"var(--sub)",marginBottom:8,textAlign:"center",letterSpacing:.5}}>TRY ASKING</div>
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--sub)",marginBottom:8,textAlign:"center",letterSpacing:.5}}>⚡ POPULAR NEET TOPICS</div>
             <div style={{display:"flex",flexWrap:"wrap",gap:7,justifyContent:"center"}}>
               {suggestions.map((s,i)=>(
-                <button key={i} onClick={()=>{setInput(s);}} style={{padding:"7px 13px",borderRadius:20,border:"1.5px solid #C4B5FD",background:"#EDE9FE",color:"#7C3AED",fontSize:12,fontWeight:600}}>{s}</button>
+                <button key={i} onClick={()=>setInput(s)} style={{padding:"7px 13px",borderRadius:20,border:"1.5px solid #C4B5FD",background:"#EDE9FE",color:"#7C3AED",fontSize:12,fontWeight:600,cursor:"pointer"}}>{s}</button>
               ))}
+            </div>
+            <div style={{marginTop:12,padding:"10px 14px",background:"linear-gradient(135deg,#FFF9E6,#FFFBF0)",borderRadius:14,border:"1px solid #FDE68A",fontSize:11,color:"#92400E",fontWeight:600,textAlign:"center"}}>
+              💡 Free plan: 1 deep-dive topic/day · <span style={{color:"#7C3AED",fontWeight:800}}>Upgrade for unlimited</span>
             </div>
           </div>
         )}
@@ -1756,10 +1857,22 @@ function FeynmanTutor({onBack}){
         {msgs.map((msg,i)=>{
           const isMe=msg.role==="user";
           return(
-            <div key={i} style={{display:"flex",justifyContent:isMe?"flex-end":"flex-start",marginBottom:12,animation:"msgIn .25s ease"}}>
-              {!isMe&&<div style={{width:32,height:32,borderRadius:"50%",background:"linear-gradient(135deg,#7C3AED,#E91E8C)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,marginRight:8,alignSelf:"flex-end"}}>🧠</div>}
-              <div style={{maxWidth:"80%",padding:"11px 14px",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",background:isMe?"linear-gradient(135deg,#7C3AED,#E91E8C)":"#fff",boxShadow:isMe?"0 2px 10px rgba(124,58,237,.25)":"0 1px 8px rgba(0,0,0,.07)"}}>
-                {isMe?<div style={{fontSize:13,color:"#fff",lineHeight:1.5}}>{msg.text}</div>:renderText(msg.text)}
+            <div key={i} style={{display:"flex",justifyContent:isMe?"flex-end":"flex-start",marginBottom:14,animation:"msgIn .25s ease"}}>
+              {!isMe&&(
+                <div style={{width:34,height:34,borderRadius:"50%",background:"linear-gradient(135deg,#7C3AED,#E91E8C)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,marginRight:8,alignSelf:"flex-end",boxShadow:"0 2px 8px rgba(124,58,237,.3)"}}>🧠</div>
+              )}
+              <div style={{
+                maxWidth:"83%",
+                padding:"12px 15px",
+                borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",
+                background:isMe?"linear-gradient(135deg,#7C3AED,#E91E8C)":"#fff",
+                boxShadow:isMe?"0 3px 12px rgba(124,58,237,.3)":"0 2px 12px rgba(0,0,0,.07)",
+                border:isMe?"none":"1px solid #F3F0FF",
+              }}>
+                {isMe
+                  ? <div style={{fontSize:13,color:"#fff",lineHeight:1.55,fontWeight:500}}>{msg.text}</div>
+                  : renderText(msg.text)
+                }
               </div>
             </div>
           );
@@ -1767,11 +1880,11 @@ function FeynmanTutor({onBack}){
 
         {loading&&(
           <div style={{display:"flex",alignItems:"flex-end",gap:8,marginBottom:12}}>
-            <div style={{width:32,height:32,borderRadius:"50%",background:"linear-gradient(135deg,#7C3AED,#E91E8C)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🧠</div>
-            <div style={{padding:"12px 16px",background:"#fff",borderRadius:"18px 18px 18px 4px",boxShadow:"0 1px 8px rgba(0,0,0,.07)"}}>
+            <div style={{width:34,height:34,borderRadius:"50%",background:"linear-gradient(135deg,#7C3AED,#E91E8C)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,boxShadow:"0 2px 8px rgba(124,58,237,.3)"}}>🧠</div>
+            <div style={{padding:"13px 16px",background:"#fff",borderRadius:"18px 18px 18px 4px",boxShadow:"0 2px 12px rgba(0,0,0,.07)",border:"1px solid #F3F0FF"}}>
               <div style={{display:"flex",gap:5,alignItems:"center"}}>
                 {[0,.2,.4].map(d=><div key={d} style={{width:7,height:7,borderRadius:"50%",background:"#C4B5FD",animation:`dotP 1.1s ${d}s ease infinite`}}/>)}
-                <span style={{fontSize:11,color:"var(--sub)",marginLeft:4}}>Feynman is thinking…</span>
+                <span style={{fontSize:11,color:"#9CA3AF",marginLeft:6,fontWeight:600}}>Feynman is thinking…</span>
               </div>
             </div>
           </div>
@@ -1779,16 +1892,38 @@ function FeynmanTutor({onBack}){
         <div ref={bottomRef}/>
       </div>
 
-      {/* Input */}
-      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"min(430px,100vw)",padding:"10px 16px 28px",background:"rgba(247,248,252,.97)",borderTop:"1px solid var(--border)",zIndex:20,backdropFilter:"blur(8px)"}}>
+      {/* Input bar */}
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"min(430px,100vw)",padding:"10px 14px 28px",background:"rgba(247,244,255,.97)",borderTop:"1px solid #EDE9FE",zIndex:20,backdropFilter:"blur(10px)"}}>
         <div style={{display:"flex",gap:10,alignItems:"center"}}>
-          <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} placeholder="Ask anything — Torque, MOI, Waves…" style={{flex:1,padding:"11px 16px",borderRadius:22,border:"1.5px solid #C4B5FD",background:"#fff",fontSize:13,fontFamily:"var(--font)",outline:"none",color:"var(--tx)"}}/>
-          <button onClick={send} disabled={loading||!input.trim()} style={{width:42,height:42,borderRadius:"50%",background:loading||!input.trim()?"#E9D5FF":"linear-gradient(135deg,#7C3AED,#E91E8C)",border:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0,boxShadow:loading?"none":"0 3px 12px rgba(124,58,237,.35)",transition:"all .2s"}}>➤</button>
+          <input
+            value={input}
+            onChange={e=>setInput(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()}
+            placeholder={topicStarted?"Reply or answer the question…":"Enter a topic to master (e.g. Mitosis)"}
+            style={{flex:1,padding:"12px 16px",borderRadius:22,border:"1.5px solid #C4B5FD",background:"#fff",fontSize:13,fontFamily:"var(--font)",outline:"none",color:"var(--tx)",boxShadow:"0 2px 8px rgba(124,58,237,.08)"}}
+          />
+          <button
+            onClick={send}
+            disabled={loading||!input.trim()}
+            style={{width:44,height:44,borderRadius:"50%",background:loading||!input.trim()?"#E9D5FF":"linear-gradient(135deg,#7C3AED,#E91E8C)",border:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0,boxShadow:loading?"none":"0 4px 14px rgba(124,58,237,.4)",transition:"all .2s",cursor:loading||!input.trim()?"not-allowed":"pointer"}}
+          >➤</button>
         </div>
+        {topicStarted&&phase<4&&(
+          <div style={{display:"flex",gap:6,justifyContent:"center",marginTop:8}}>
+            {PHASES.map((p,i)=>(
+              <div key={p.id} style={{display:"flex",alignItems:"center",gap:3,opacity:i<=phase?1:0.35,transition:"opacity .3s"}}>
+                <span style={{fontSize:10}}>{p.icon}</span>
+                <span style={{fontSize:9,fontWeight:700,color:i===phase?"#7C3AED":"var(--sub)"}}>{p.label}</span>
+                {i<4&&<span style={{fontSize:9,color:"#D1D5DB"}}>›</span>}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
 
 /* ══════════════════════════════════════
    KNOWLEDGE BASE UPDATER (in Profile)
@@ -2736,64 +2871,69 @@ function PaywallCard({onClose,onUpgrade}){
 }
 
 /* ══════════════════════════════════════
-   UPGRADE MODAL  (Value Wall)
+   PAYWALL MODAL  — Doctor Lite
 ══════════════════════════════════════ */
-function UpgradeModal({onClose, reason="quiz"}){
-  const [toastVisible, setToastVisible] = useState(false);
-  const showToast = () => {
-    setToastVisible(true);
-    setTimeout(()=>setToastVisible(false), 2500);
-  };
+function PaywallModal({onClose, reason=""}){
+  const [toast, setToast] = useState(false);
+  const showToast = () => { setToast(true); setTimeout(()=>setToast(false),2800); };
   return(
-    <div style={{position:"fixed",inset:0,zIndex:2000,background:"rgba(0,0,0,0.6)",backdropFilter:"blur(10px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 20px"}}>
-      {/* Coming soon toast */}
-      {toastVisible&&(
-        <div style={{position:"fixed",top:32,left:"50%",transform:"translateX(-50%)",background:"#1A1A2E",color:"#fff",padding:"10px 22px",borderRadius:20,fontWeight:700,fontSize:13,zIndex:2100,boxShadow:"0 4px 20px rgba(0,0,0,.3)"}}>
-          🚧 Coming Soon — Payment integration in progress!
+    <div style={{position:"fixed",inset:0,zIndex:2000,background:"rgba(15,10,30,0.75)",backdropFilter:"blur(12px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 18px"}}>
+      {toast&&(
+        <div style={{position:"fixed",top:28,left:"50%",transform:"translateX(-50%)",background:"#1A1A2E",color:"#fff",padding:"11px 24px",borderRadius:22,fontWeight:700,fontSize:13,zIndex:2100,boxShadow:"0 6px 24px rgba(0,0,0,.4)",whiteSpace:"nowrap"}}>
+          🚧 Razorpay integration coming soon!
         </div>
       )}
-      <div style={{width:"100%",maxWidth:390,background:"#fff",borderRadius:28,padding:"28px 22px",boxShadow:"0 24px 60px rgba(0,0,0,.3)",animation:"scaleIn .25s ease both"}}>
-        {/* Icon + title */}
-        <div style={{textAlign:"center",marginBottom:20}}>
-          <div style={{fontSize:52,marginBottom:8}}>🔒</div>
-          <div style={{fontSize:20,fontWeight:900,color:"#1A1A2E",lineHeight:1.25}}>Free Limit Reached</div>
-          <div style={{fontSize:13,color:"#6B7280",marginTop:8,lineHeight:1.5,fontWeight:500}}>
-            You've reached your free limit for today. Unlock the full potential of BrainBattle.
-          </div>
+      <div style={{width:"100%",maxWidth:400,background:"#fff",borderRadius:32,overflow:"hidden",boxShadow:"0 32px 80px rgba(0,0,0,.35)",animation:"scaleIn .22s ease both"}}>
+
+        {/* Header band */}
+        <div style={{background:"linear-gradient(135deg,#667EEA 0%,#764BA2 60%,#E91E8C 100%)",padding:"28px 24px 22px",textAlign:"center",position:"relative"}}>
+          <div style={{position:"absolute",top:12,right:14,width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,.15)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:16}} onClick={onClose}>✕</div>
+          <div style={{fontSize:44,marginBottom:6}}>👨‍⚕️</div>
+          <div style={{fontSize:11,fontWeight:800,color:"rgba(255,255,255,.7)",letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>Doctor Lite Plan</div>
+          <div style={{fontSize:22,fontWeight:900,color:"#fff",lineHeight:1.2}}>Unlock Your Full</div>
+          <div style={{fontSize:22,fontWeight:900,color:"#FFD166",lineHeight:1.2}}>NEET Potential</div>
+          {reason&&<div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:8,lineHeight:1.5,fontWeight:500}}>{reason}</div>}
         </div>
 
-        {/* What you get */}
-        {[
-          ["📝","Unlimited Quizzes","Practice as much as you want, every day"],
-          ["🏥","Full Mock Tests","Complete 200-question NEET simulations"],
-          ["🧠","Unlimited Dr. Neuron","Instant AI answers to all your doubts"],
-          ["📊","Deep Analytics","Weakness heatmap & rank tracker"],
-        ].map(([icon,title,desc],i)=>(
-          <div key={i} style={{display:"flex",alignItems:"center",gap:12,marginBottom:10,padding:"10px 12px",background:"#F8F7FF",borderRadius:14,border:"1px solid #EDE9FE"}}>
-            <div style={{fontSize:20,flexShrink:0}}>{icon}</div>
+        <div style={{padding:"20px 22px 24px"}}>
+          {/* 3 core benefits */}
+          {[
+            {icon:"🧠", title:"Unlimited Dr. Neuron (RAG)", desc:"Ask any NEET doubt — instant NCERT-grounded answers, no daily cap"},
+            {icon:"🏆", title:"All-India Rank Tracker",     desc:"See your live rank among thousands of NEET 2026 aspirants"},
+            {icon:"📖", title:"Detailed Explanations",       desc:"Step-by-step solutions for every question in every mock test"},
+          ].map((b,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:12,padding:"12px 14px",background:"linear-gradient(135deg,#F8F7FF,#FFF0F8)",borderRadius:16,border:"1px solid #EDE9FE"}}>
+              <div style={{fontSize:22,flexShrink:0,marginTop:1}}>{b.icon}</div>
+              <div>
+                <div style={{fontSize:13,fontWeight:800,color:"#1A1A2E"}}>{b.title}</div>
+                <div style={{fontSize:11,color:"#6B7280",marginTop:2,lineHeight:1.4}}>{b.desc}</div>
+              </div>
+            </div>
+          ))}
+
+          {/* Price block */}
+          <div style={{background:"#F9F7FF",border:"2px solid #EDE9FE",borderRadius:20,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,marginTop:4}}>
             <div>
-              <div style={{fontSize:13,fontWeight:700,color:"#1A1A2E"}}>{title}</div>
-              <div style={{fontSize:11,color:"#9CA3AF",marginTop:1}}>{desc}</div>
+              <div style={{fontSize:11,fontWeight:700,color:"#9CA3AF",letterSpacing:.5,textTransform:"uppercase"}}>Monthly Plan</div>
+              <div style={{display:"flex",alignItems:"baseline",gap:8,marginTop:2}}>
+                <span style={{fontSize:15,color:"#D1D5DB",textDecoration:"line-through",fontWeight:500}}>₹999</span>
+                <span style={{fontSize:36,fontWeight:900,color:"#7C3AED",lineHeight:1}}>₹599</span>
+              </div>
+              <div style={{fontSize:10,color:"#9CA3AF",marginTop:2}}>Save ₹400 · Cancel anytime</div>
+            </div>
+            <div style={{textAlign:"center",background:"linear-gradient(135deg,#667EEA,#764BA2)",borderRadius:14,padding:"8px 12px"}}>
+              <div style={{fontSize:11,fontWeight:800,color:"#fff"}}>7-Day</div>
+              <div style={{fontSize:11,fontWeight:800,color:"#FFD166"}}>FREE</div>
+              <div style={{fontSize:9,color:"rgba(255,255,255,.7)"}}>Trial</div>
             </div>
           </div>
-        ))}
 
-        {/* Price */}
-        <div style={{background:"linear-gradient(135deg,#667EEA,#764BA2)",borderRadius:18,padding:"14px 16px",textAlign:"center",margin:"16px 0 12px"}}>
-          <div style={{fontSize:11,color:"rgba(255,255,255,.7)",fontWeight:700,letterSpacing:1,textTransform:"uppercase"}}>Doctor Lite Plan</div>
-          <div style={{display:"flex",alignItems:"baseline",gap:8,justifyContent:"center",marginTop:6}}>
-            <div style={{fontSize:16,color:"rgba(255,255,255,.45)",textDecoration:"line-through",fontWeight:500}}>₹999</div>
-            <div style={{fontSize:38,fontWeight:900,color:"#fff",lineHeight:1}}>₹599</div>
-            <div style={{fontSize:13,color:"rgba(255,255,255,.7)",fontWeight:600}}>/month</div>
+          <button onClick={showToast} style={{width:"100%",padding:"16px",background:"linear-gradient(135deg,#667EEA,#764BA2)",border:"none",borderRadius:16,color:"#fff",fontSize:16,fontWeight:900,cursor:"pointer",boxShadow:"0 8px 24px rgba(102,126,234,.45)",marginBottom:10,letterSpacing:.3}}>
+            Pay ₹599 · Upgrade Now 🚀
+          </button>
+          <div onClick={onClose} style={{textAlign:"center",color:"#9CA3AF",fontSize:13,fontWeight:600,cursor:"pointer",padding:"4px 0"}}>
+            Maybe later
           </div>
-          <div style={{fontSize:11,color:"rgba(255,255,255,.65)",marginTop:4}}>7-day free trial · Cancel anytime · Save 40%</div>
-        </div>
-
-        <button onClick={showToast} style={{width:"100%",padding:"15px",background:"linear-gradient(135deg,#667EEA,#764BA2)",border:"none",borderRadius:14,color:"#fff",fontSize:15,fontWeight:900,cursor:"pointer",boxShadow:"0 6px 20px rgba(102,126,234,.4)",marginBottom:10}}>
-          Upgrade to Doctor Lite 🚀
-        </button>
-        <div onClick={onClose} style={{textAlign:"center",color:"#9CA3AF",fontSize:13,fontWeight:600,cursor:"pointer",padding:"6px 0"}}>
-          Maybe later
         </div>
       </div>
     </div>
@@ -3064,26 +3204,48 @@ export default function App(){
   const [quizSubject,  setQuizSubject]  = useState(null);
   const [quizChapter,  setQuizChapter]  = useState(null);
   const [browseSubject,setBrowseSubject] = useState(null);
-  const startQuiz = (subj=null, ch=null) => {
-    const usage = getTodayUsage();
-    const premium = JSON.parse(localStorage.getItem("bb_premium")||"false");
-    if (!premium && usage.quizzes >= 3) {
-      setShowUpgradeModal(true);
+  const startQuiz = async (subj=null, ch=null) => {
+    const uid = authUser?.uid || null;
+    // Optimistic check using in-memory state (instant UI response)
+    if (!userUsage.is_premium && userUsage.dailyQuizzesCount >= 3) {
+      setPaywallReason("You've used all 3 free quizzes for today. Upgrade to practice without limits.");
+      setShowPaywall(true);
       return;
     }
-    bumpUsage("quizzes");
+    // Authoritative check against Firestore (prevents localStorage spoofing)
+    const { allowed, reason } = await verifyAccess(uid, "quiz");
+    if (!allowed) {
+      setPaywallReason(reason);
+      setShowPaywall(true);
+      return;
+    }
+    // Access granted — write usage to Firestore immediately
+    await incrementUsage(uid, "quiz");
+    // Update local state so UI reflects new count without another Firestore read
+    setUserUsage(prev => ({ ...prev, dailyQuizzesCount: prev.dailyQuizzesCount + 1 }));
     setQuizSubject(subj);
     setQuizChapter(ch);
     setFlow("loading");
   };
-  const startMock = () => {
-    const usage = getTodayUsage();
-    const premium = JSON.parse(localStorage.getItem("bb_premium")||"false");
-    if (!premium && usage.mocks >= 1) {
-      setShowUpgradeModal(true);
+
+  const startMock = async () => {
+    const uid = authUser?.uid || null;
+    // Optimistic check
+    if (!userUsage.is_premium && userUsage.hasAttemptedMock) {
+      setPaywallReason("Free plan includes 1 mock test. Upgrade for unlimited NEET mock access.");
+      setShowPaywall(true);
       return;
     }
-    bumpUsage("mocks");
+    // Authoritative Firestore check
+    const { allowed, reason } = await verifyAccess(uid, "mock");
+    if (!allowed) {
+      setPaywallReason(reason);
+      setShowPaywall(true);
+      return;
+    }
+    // Access granted
+    await incrementUsage(uid, "mock");
+    setUserUsage(prev => ({ ...prev, hasAttemptedMock: true }));
     setFlow("neet_mock");
   };
   const goHome      = ()=>{setFlow(null);setTab("home");setMockResult(null);};
@@ -3107,13 +3269,24 @@ export default function App(){
       if(user){
         setAuthUser(user);
         localStorage.setItem("bb_uid", user.uid);
-        ensureUserDoc(user).catch(console.error);
-        const stats = await getUserStats(user.uid);
+        // Ensure doc exists (patches old docs with usage fields too)
+        await ensureUserDoc(user).catch(console.error);
+        // Fetch stats AND usage from Firestore in parallel
+        const [stats, usage] = await Promise.all([
+          getUserStats(user.uid),
+          getUserUsage(user.uid),
+        ]);
         setUserStats(stats);
+        setUserUsage(usage);
+        // Sync premium status from Firestore — cannot be spoofed via localStorage
+        if (usage.is_premium) localStorage.setItem("bb_premium","true");
+        else localStorage.removeItem("bb_premium");
       } else {
         setAuthUser(null);
         localStorage.removeItem("bb_uid");
+        localStorage.removeItem("bb_premium");
         setUserStats({level:1,totalPoints:0,accuracy:0,streak:0,totalQs:0,rank:999,quizzesDone:0,studyMins:0});
+        setUserUsage({dailyQuizzesCount:0,hasAttemptedMock:false,is_premium:false});
       }
     };
 
@@ -3140,24 +3313,14 @@ export default function App(){
   const [showOnboarding,setShowOnboarding]=useState(()=>{
     return !localStorage.getItem("bb_onboarded");
   });
-  const [isPremium,setIsPremium]=useState(()=>{ // eslint-disable-line
-    return JSON.parse(localStorage.getItem("bb_premium")||"false");
+  // Usage state — loaded from Firestore on login; cannot be reset by clearing localStorage
+  const [userUsage, setUserUsage] = useState({
+    dailyQuizzesCount: 0,
+    hasAttemptedMock:  false,
+    is_premium:        false,
   });
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-
-  // Daily usage tracker — resets each new day
-  const getTodayUsage = () => {
-    const today = new Date().toDateString();
-    const raw = localStorage.getItem("bb_usage_"+today);
-    return raw ? JSON.parse(raw) : { quizzes: 0, mocks: 0 };
-  };
-  const bumpUsage = (type) => {
-    const today = new Date().toDateString();
-    const usage = getTodayUsage();
-    usage[type] = (usage[type]||0) + 1;
-    localStorage.setItem("bb_usage_"+today, JSON.stringify(usage));
-    return usage;
-  };
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [paywallReason, setPaywallReason] = useState("");
   const addQuestion = (q)=>setKB(prev=>[...prev,{...q,id:prev.length+1}]);
 
   const inFlow = !!flow;
@@ -3185,7 +3348,7 @@ export default function App(){
           setFlow("results");
         }}/>;
   else if(flow==="results"&&result) content=<ResultsScreen result={result} questions={questions} onHome={goHome} onRetry={()=>startQuiz(quizSubject,quizChapter)}/>;
-  else if(flow==="feynman") content=<FeynmanTutor onBack={()=>{setFlow(null);setTab("profile");}}/>;
+  else if(flow==="feynman") content=<FeynmanTutor onBack={()=>{setFlow(null);setTab("profile");}} uid={authUser?.uid||null}/>;
   else if(flow==="neet_mock") content=<NeetMockScreen onBack={goHome} onFinish={r=>{setMockResult(r);setFlow("mock_results");}}/>;
   else if(flow==="mock_results"&&mockResult) content=<NeetMockResults result={mockResult} onHome={goHome} onRetry={()=>startMock()}/>;
   else if(flow==="doubt") content=<DoubtScreen onBack={()=>{setFlow(null);setTab("home");}} userName={authUser?.displayName?.split(" ")[0]||"Student"}/>;
@@ -3195,7 +3358,7 @@ export default function App(){
   else if(tab==="messages") content=<MessagesScreen/>;
   else if(tab==="ranks")    content=<RanksScreen currentUid={authUser?.uid}/>;
   else if(tab==="dashboard") content=<DashboardScreen score={score} rank={rank} streak={streak} accuracy={accuracy} userStats={userStats} uid={authUser?.uid} onBack={()=>setTab("home")}/>;
-  else content=<ProfileScreen score={score} rank={rank} streak={streak} accuracy={accuracy} xp={xp} level={level} kb={kb} addQuestion={addQuestion} onFeynman={()=>setFlow("doubt")} userName={authUser?.displayName||"Student"} userEmail={authUser?.email||""} userPhoto={authUser?.photoURL||""} onSignOut={async()=>{await signOutUser();setAuthUser(null);localStorage.removeItem("bb_auth_token");}} onSignIn={()=>setAuthUser(null)} userStats={userStats}/>;
+  else content=<ProfileScreen score={score} rank={rank} streak={streak} accuracy={accuracy} xp={xp} level={level} kb={kb} addQuestion={addQuestion} onFeynman={()=>setFlow("feynman")} userName={authUser?.displayName||"Student"} userEmail={authUser?.email||""} userPhoto={authUser?.photoURL||""} onSignOut={async()=>{await signOutUser();setAuthUser(null);localStorage.removeItem("bb_auth_token");}} onSignIn={()=>setAuthUser(null)} userStats={userStats}/>;
 
   // Show loading while checking auth
   if(authLoading) return(
@@ -3241,7 +3404,7 @@ export default function App(){
       <div style={{maxWidth:430,margin:"0 auto",minHeight:"100vh",position:"relative",background:"var(--bg)"}}>
         {content}
         {!inFlow&&<BottomNav tab={tab} setTab={setTab} onQuiz={startQuiz}/>}
-        {showUpgradeModal&&<UpgradeModal onClose={()=>setShowUpgradeModal(false)}/>}
+        {showPaywall&&<PaywallModal onClose={()=>{setShowPaywall(false);setPaywallReason("");}} reason={paywallReason}/>}
       </div>
     </>
   );
