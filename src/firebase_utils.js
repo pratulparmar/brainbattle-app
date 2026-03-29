@@ -20,7 +20,7 @@ import {
 
 const firebaseConfig = {
   apiKey:            "AIzaSyC4awLUkV8Z1PqFCW0FLVlpXhyoGud4dwg",
-  authDomain:        "brainbattle-app-tu58.vercel.app",
+  authDomain:        "brainbattle-neet.firebaseapp.com",
   projectId:         "brainbattle-neet",
   storageBucket:     "brainbattle-neet.firebasestorage.app",
   messagingSenderId: "655830697038",

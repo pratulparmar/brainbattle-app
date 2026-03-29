@@ -825,8 +825,8 @@ function RanksScreen({currentUid}){
           </div>
           )}
           {rest.map((p,i)=>{
-            const isMe=p.name==="You";
-            const moved=p.prev-p.rank;
+            const isMe=p.isMe||(p.name==="You");
+            const moved=(p.prev!=null)?(p.prev-p.rank):0;
             return(
               <div key={i} style={{position:"relative",marginBottom:10}}>
                 {isMe&&<div style={{position:"absolute",top:-10,left:"50%",transform:"translateX(-50%)",background:"var(--grad)",color:"#fff",fontSize:10,fontWeight:700,padding:"2px 10px",borderRadius:10,zIndex:2,letterSpacing:.5}}>YOU</div>}
@@ -2946,6 +2946,8 @@ function DoubtScreen({onBack,userName="Student"}){
 }
 
 export default function App(){
+  const [authUser, setAuthUser] = useState(null);       // Firebase auth user
+  const [authLoading, setAuthLoading] = useState(true); // true until onAuthStateChanged fires
   const [tab,setTab]=useState("home");
   const [flow,setFlow]=useState(null);
   const [questions,setQs]=useState(null);
