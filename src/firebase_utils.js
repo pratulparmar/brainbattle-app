@@ -61,6 +61,11 @@ export function onAuthChange(callback) {
   return onAuthStateChanged(auth, callback);
 }
 
+// Catches the logged-in user after a Google redirect on mobile browsers
+export function checkRedirectResult() {
+  return getRedirectResult(auth);
+}
+
 export async function signOutUser() {
   await signOut(auth);
 }

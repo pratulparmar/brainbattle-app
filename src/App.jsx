@@ -1,6 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useRef } from "react";
-import { signInWithGoogle, signOutUser, onAuthChange, getUserStats, saveQuizResult, getLeaderboard, ensureUserDoc } from "./firebase_utils";
+import { signInWithGoogle, signOutUser, onAuthChange, checkRedirectResult, getUserStats, saveQuizResult, getLeaderboard, ensureUserDoc } from "./firebase_utils";
 import { QB, getRandom, getChaptersForSubject, QB_STATS } from "./QB.js";
 
 /* ══════════════════════════════════════
@@ -2988,17 +2988,22 @@ export default function App(){
   // eslint-disable-next-line
   const openDoubt   = ()=>setFlow("doubt");
 
-  // Firebase auth - single source of truth: onAuthStateChanged
-  // setPersistence is called globally in firebase_utils.js
-  // onAuthStateChanged fires BOTH on fresh login AND after redirect return
+  // Firebase auth — waits for BOTH onAuthStateChanged AND getRedirectResult
+  // before setting authLoading=false. This prevents the login screen from
+  // flashing on mobile when the user returns from a Google redirect.
   useEffect(()=>{
-    const unsub = onAuthChange(async (user)=>{
+    let authFired    = false; // has onAuthStateChanged fired yet?
+    let redirectDone = false; // has getRedirectResult resolved yet?
+
+    const maybeFinish = () => {
+      if (authFired && redirectDone) setAuthLoading(false);
+    };
+
+    const handleUser = async (user) => {
       if(user){
         setAuthUser(user);
         localStorage.setItem("bb_uid", user.uid);
-        // Create user doc if first time
         ensureUserDoc(user).catch(console.error);
-        // Load stats
         const stats = await getUserStats(user.uid);
         setUserStats(stats);
       } else {
@@ -3006,7 +3011,24 @@ export default function App(){
         localStorage.removeItem("bb_uid");
         setUserStats({level:1,totalPoints:0,accuracy:0,streak:0,totalQs:0,rank:999,quizzesDone:0,studyMins:0});
       }
-      setAuthLoading(false);
+    };
+
+    // 1. Check redirect result first (catches mobile Google redirect return)
+    checkRedirectResult().then(async (result) => {
+      if (result?.user) await handleUser(result.user);
+      redirectDone = true;
+      maybeFinish();
+    }).catch(e => {
+      console.error("checkRedirectResult:", e);
+      redirectDone = true;
+      maybeFinish();
+    });
+
+    // 2. Listen to auth state changes (fires for popup login + persistent sessions)
+    const unsub = onAuthChange(async (user)=>{
+      await handleUser(user);
+      authFired = true;
+      maybeFinish();
     });
     return ()=>unsub();
   },[]);// eslint-disable-line
