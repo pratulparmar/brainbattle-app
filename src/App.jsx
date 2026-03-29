@@ -956,10 +956,17 @@ function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFey
 
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}><span style={{fontSize:22}}>🏆</span><span style={{fontSize:22,fontWeight:800}}>Achievements</span></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:20}}>
-          {ACHIEVEMENTS.map((a,i)=>(
-            <Card key={i} style={{padding:"14px 10px",position:"relative"}}>
+          {[
+            { icon:"🏆", label:"First Victory",  desc:"Complete your first quiz",      color:"#FF9500", bg:"#FFF3E0", earned:(userStats?.quizzesDone||0)>=1 },
+            { icon:"🎯", label:"Sharp Shooter",  desc:"10 correct in a row",           color:"#22C55E", bg:"#F0FDF4", earned:(userStats?.accuracy||0)>=80&&(userStats?.totalQs||0)>=10 },
+            { icon:"⚡", label:"Speed Demon",    desc:"50 questions attempted",        color:"#00B4D8", bg:"#E0F7FF", earned:(userStats?.totalQs||0)>=50 },
+            { icon:"🧠", label:"Genius",         desc:"Score 90%+ accuracy",           color:"#7C3AED", bg:"#EDE9FE", earned:(userStats?.accuracy||0)>=90&&(userStats?.quizzesDone||0)>=3 },
+            { icon:"⭐", label:"Rising Star",    desc:"Reach top 10 leaderboard",      color:"#E91E8C", bg:"#FFE4F3", earned:(userStats?.rank||999)<=10 },
+            { icon:"👑", label:"Legendary",      desc:"30-day streak",                 color:"#FF6B35", bg:"#FFF0E8", earned:(userStats?.streak||0)>=30 },
+          ].map((a,i)=>(
+            <Card key={i} style={{padding:"14px 10px",position:"relative",opacity:a.earned?1:0.6}}>
               {a.earned&&<div style={{position:"absolute",top:8,right:8,width:20,height:20,borderRadius:"50%",background:"var(--green)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"#fff",fontWeight:700}}>✓</div>}
-              <div style={{width:46,height:46,borderRadius:14,background:a.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,marginBottom:8}}>{a.icon}</div>
+              <div style={{width:46,height:46,borderRadius:14,background:a.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,marginBottom:8,filter:a.earned?"none":"grayscale(1)"}}>{a.icon}</div>
               <div style={{fontSize:12,fontWeight:700,marginBottom:3}}>{a.label}</div>
               <div style={{fontSize:10,color:"var(--sub)",lineHeight:1.3}}>{a.desc}</div>
             </Card>

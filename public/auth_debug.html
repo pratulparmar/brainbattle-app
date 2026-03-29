@@ -7,65 +7,80 @@
   <style>
     body { font-family: monospace; padding: 16px; background: #0a0a0a; color: #00ff00; font-size: 13px; }
     .log { margin: 4px 0; padding: 4px 8px; border-radius: 4px; word-break: break-all; }
-    .info  { background: #001a00; color: #00ff00; }
-    .warn  { background: #1a1a00; color: #ffff00; }
-    .error { background: #1a0000; color: #ff4444; }
+    .info    { background: #001a00; color: #00ff00; }
+    .warn    { background: #1a1a00; color: #ffff00; }
+    .error   { background: #1a0000; color: #ff4444; }
     .success { background: #001a00; color: #00ff88; font-weight: bold; }
-    button { margin: 8px 4px; padding: 12px 20px; border-radius: 8px; border: none; 
+    button { margin: 8px 4px; padding: 12px 20px; border-radius: 8px; border: none;
              background: #4285f4; color: white; font-size: 14px; font-weight: bold; cursor: pointer; }
-    #status { font-size: 16px; font-weight: bold; padding: 12px; border-radius: 8px; 
+    button.red { background: #c62828; }
+    #status { font-size: 16px; font-weight: bold; padding: 12px; border-radius: 8px;
               margin-bottom: 12px; background: #111; }
   </style>
 </head>
 <body>
   <div id="status">🔍 Initializing...</div>
   <div id="logs"></div>
-  <button onclick="testLogin()">Test Google Login</button>
-  <button onclick="testPersistence()">Test Persistence</button>
-  <button onclick="clearAndReload()">Clear & Reload</button>
+  <button onclick="testLogin()">▶ Test Google Login</button>
+  <button onclick="testPersistence()">🔍 Check localStorage</button>
+  <button class="red" onclick="clearAndReload()">🗑 Clear & Reload</button>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import { 
-      getAuth, GoogleAuthProvider, signInWithRedirect, 
+    import {
+      getAuth, GoogleAuthProvider, signInWithRedirect,
       getRedirectResult, onAuthStateChanged, setPersistence,
       browserLocalPersistence, browserSessionPersistence
     } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
     const config = {
-      apiKey: "AIzaSyC4awLUkV8Z1PqFCW0FLVlpXhyoGud4dwg",
+      apiKey:     "AIzaSyC4awLUkV8Z1PqFCW0FLVlpXhyoGud4dwg",
       authDomain: "brainbattle-neet.firebaseapp.com",
-      projectId: "brainbattle-neet",
-      appId: "1:655830697038:web:61918bd3a81942a6bb6f1f"
+      projectId:  "brainbattle-neet",
+      appId:      "1:655830697038:web:61918bd3a81942a6bb6f1f"
     };
 
-    const logs = document.getElementById("logs");
-    const status = document.getElementById("status");
+    const logsEl  = document.getElementById("logs");
+    const statusEl = document.getElementById("status");
 
     function log(msg, type="info") {
       const div = document.createElement("div");
       div.className = `log ${type}`;
       div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-      logs.prepend(div);
+      logsEl.prepend(div);
       console.log(msg);
     }
-
     function setStatus(msg, ok) {
-      status.textContent = msg;
-      status.style.background = ok ? "#003300" : ok===false ? "#330000" : "#111";
+      statusEl.textContent = msg;
+      statusEl.style.background = ok ? "#003300" : ok===false ? "#330000" : "#111";
     }
 
-    const app  = initializeApp(config);
-    const auth = getAuth(app);
+    // ── 1. Environment info ──────────────────────────────────────────
+    const ua = navigator.userAgent;
+    log(`UA: ${ua.slice(0,100)}`);
+    log(`Mobile: ${/Android|iPhone|iPad|Mobile/i.test(ua)}`);
+    log(`Brave: ${!!(navigator.brave)}`, navigator.brave ? "warn" : "info");
+    log(`Protocol: ${location.protocol}  Host: ${location.host}`);
+    log(`3rd-party cookies: testing...`);
+
+    // Test if localStorage works (Brave Shields can block it)
+    try {
+      localStorage.setItem("__bb_test__","1");
+      const v = localStorage.getItem("__bb_test__");
+      localStorage.removeItem("__bb_test__");
+      log(`✅ localStorage: working (got "${v}")`, "success");
+    } catch(e) {
+      log(`❌ localStorage BLOCKED: ${e.message} — Brave Shields likely blocking storage`, "error");
+    }
+
+    // ── 2. Firebase init ─────────────────────────────────────────────
+    const app      = initializeApp(config);
+    const auth     = getAuth(app);
     const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+    log("✅ Firebase initialized", "success");
 
-    log("Firebase initialized");
-    log(`User agent: ${navigator.userAgent.slice(0,80)}`);
-    log(`Is mobile: ${/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)}`);
-    log(`Protocol: ${location.protocol}`);
-    log(`Host: ${location.host}`);
-
-    // Step 1: Test persistence
+    // ── 3. Persistence ───────────────────────────────────────────────
     try {
       await setPersistence(auth, browserLocalPersistence);
       log("✅ browserLocalPersistence set OK", "success");
@@ -79,60 +94,59 @@
       }
     }
 
-    // Step 2: Check for redirect result
+    // ── 4. Redirect result ───────────────────────────────────────────
     log("Checking getRedirectResult...");
     try {
       const result = await getRedirectResult(auth);
       if (result) {
-        log(`✅ Redirect result found! User: ${result.user.email}`, "success");
+        log(`✅ Redirect result: ${result.user.email}`, "success");
         setStatus(`✅ Logged in as ${result.user.email}`, true);
       } else {
-        log("No redirect result (first load or not a redirect)", "info");
+        log("No redirect result (first load or not a redirect)");
       }
     } catch(e) {
-      log(`❌ getRedirectResult ERROR: ${e.code} - ${e.message}`, "error");
-      setStatus(`❌ Redirect Error: ${e.code}`, false);
+      log(`❌ getRedirectResult ERROR: ${e.code} — ${e.message}`, "error");
+      setStatus(`❌ Redirect error: ${e.code}`, false);
     }
 
-    // Step 3: Auth state listener
-    log("Setting up onAuthStateChanged...");
+    // ── 5. Auth state ────────────────────────────────────────────────
+    log("Listening for onAuthStateChanged...");
     onAuthStateChanged(auth, (user) => {
       if (user) {
-        log(`✅ onAuthStateChanged: user = ${user.email}`, "success");
-        setStatus(`✅ Auth state: logged in as ${user.email}`, true);
+        log(`✅ onAuthStateChanged: ${user.email} (uid: ${user.uid})`, "success");
+        setStatus(`✅ Logged in as ${user.email}`, true);
       } else {
-        log("onAuthStateChanged: user = null (not logged in)", "warn");
-        setStatus("⚠️ Auth state: not logged in", null);
+        log("onAuthStateChanged: null — not logged in", "warn");
+        setStatus("⚠️ Not logged in — tap Test Google Login", null);
       }
     });
 
-    // Test functions
+    // ── Button handlers ──────────────────────────────────────────────
     window.testLogin = async () => {
       log("Starting signInWithRedirect...");
       try {
         await signInWithRedirect(auth, provider);
-        log("Redirect initiated...", "info");
       } catch(e) {
-        log(`❌ signInWithRedirect FAILED: ${e.code} - ${e.message}`, "error");
+        log(`❌ signInWithRedirect FAILED: ${e.code} — ${e.message}`, "error");
         setStatus(`❌ ${e.code}`, false);
       }
     };
 
-    window.testPersistence = async () => {
-      log("Current auth persistence type: checking localStorage...");
-      const keys = Object.keys(localStorage).filter(k => k.includes("firebase"));
-      log(`Firebase localStorage keys: ${keys.length > 0 ? keys.join(", ") : "NONE"}`);
-      keys.forEach(k => log(`  ${k}: ${localStorage.getItem(k)?.slice(0,50)}`));
+    window.testPersistence = () => {
+      const keys = Object.keys(localStorage).filter(k => k.includes("firebase") || k.includes("bb_"));
+      log(`Firebase/BB localStorage keys: ${keys.length > 0 ? keys.join(", ") : "NONE"}`, keys.length ? "success" : "warn");
+      keys.forEach(k => log(`  ${k} = ${(localStorage.getItem(k)||"").slice(0,80)}`));
     };
 
     window.clearAndReload = () => {
-      Object.keys(localStorage).filter(k => k.includes("firebase")).forEach(k => localStorage.removeItem(k));
-      log("Cleared Firebase localStorage. Reloading...", "warn");
-      setTimeout(() => location.reload(), 500);
+      Object.keys(localStorage).filter(k => k.includes("firebase") || k.includes("bb_"))
+        .forEach(k => localStorage.removeItem(k));
+      log("Cleared all Firebase+BB localStorage keys. Reloading...", "warn");
+      setTimeout(() => location.reload(), 600);
     };
 
-    log("Debug page ready. Tap 'Test Google Login' to start.");
-    setStatus("🔍 Ready — tap Test Google Login", null);
+    setStatus("🔍 Ready — tap ▶ Test Google Login", null);
+    log("Debug page ready.");
   </script>
 </body>
 </html>
