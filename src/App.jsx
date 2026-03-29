@@ -2973,22 +2973,18 @@ function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}
 
       {/* Header */}
       <div style={{
-        background: mode==="feynman"
-          ? "linear-gradient(135deg,#4C1D95,#7C3AED,#E91E8C)"
-          : "rgba(255,255,255,0.88)",
-        backdropFilter:"blur(20px)",
-        borderBottom: mode==="feynman"?"none":"1px solid rgba(124,58,237,.08)",
+        background:"linear-gradient(135deg,#4C1D95,#7C3AED,#E91E8C)",
         padding:"44px 20px 0",
       }}>
-        <button onClick={onBack} style={{background:mode==="feynman"?"rgba(255,255,255,.18)":"rgba(124,58,237,.1)",border:mode==="feynman"?"1px solid rgba(255,255,255,.3)":"none",borderRadius:12,width:36,height:36,color:mode==="feynman"?"#fff":"#7C3AED",fontSize:16,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center"}}>←</button>
+        <button onClick={onBack} style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.3)",borderRadius:12,width:36,height:36,color:"#fff",fontSize:16,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center"}}>←</button>
 
         {mode==="doubt"?(
           <div style={{display:"flex",alignItems:"center",gap:14,paddingBottom:14}}>
             <div style={{animation:"floatBob 3s ease infinite",flexShrink:0}}><DrNeuron mood={mood}/></div>
             <div>
-              <div style={{fontSize:11,fontWeight:700,color:"#9CA3AF",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Dr. Neuron 🧠</div>
-              <div style={{fontSize:19,fontWeight:900,color:"#1F1235",lineHeight:1.2}}>Hello, {userName}! 👋</div>
-              <div style={{fontSize:12,color:"#6B7280",marginTop:2,fontWeight:600}}>Ask anything — NCERT-grounded instant answers</div>
+              <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.7)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Dr. Neuron 🧠</div>
+              <div style={{fontSize:19,fontWeight:900,color:"#fff",lineHeight:1.2}}>Hello, {userName}! 👋</div>
+              <div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:2,fontWeight:600}}>Ask anything — NCERT-grounded instant answers</div>
             </div>
           </div>
         ):(
@@ -3015,27 +3011,29 @@ function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}
           </div>
         )}
 
-        {/* Mode toggle — big bright tabs */}
-        <div style={{display:"flex",gap:8,padding:"10px 0 4px"}}>
-          <button onClick={()=>setMode("doubt")} style={{flex:1,padding:"13px 8px",borderRadius:16,border:"none",fontSize:13,fontWeight:900,cursor:"pointer",transition:"all .2s",
-            background:mode==="doubt"?"linear-gradient(135deg,#667EEA,#764BA2)":"rgba(255,255,255,.15)",
-            color:mode==="doubt"?"#fff":"rgba(255,255,255,.55)",
-            boxShadow:mode==="doubt"?"0 4px 16px rgba(102,126,234,.5)":"none",
-            transform:mode==="doubt"?"scale(1.03)":"scale(1)",
+        {/* Mode toggle — segmented control, always visible on any background */}
+        <div style={{display:"flex",background:"rgba(0,0,0,.18)",borderRadius:20,padding:5,gap:4,margin:"10px 0 4px"}}>
+          <button onClick={()=>setMode("doubt")} style={{
+            flex:1,padding:"11px 8px",borderRadius:16,border:"none",cursor:"pointer",
+            transition:"all .22s",fontFamily:"var(--font)",
+            background:mode==="doubt"?"linear-gradient(135deg,#667EEA,#764BA2)":"transparent",
+            boxShadow:mode==="doubt"?"0 4px 14px rgba(102,126,234,.55)":"none",
+            transform:mode==="doubt"?"scale(1.02)":"scale(1)",
           }}>
-            <div style={{fontSize:20,marginBottom:3}}>🔍</div>
-            <div>Ask Doubt</div>
-            <div style={{fontSize:9,fontWeight:600,opacity:.8,marginTop:1}}>Instant NCERT answer</div>
+            <div style={{fontSize:22,marginBottom:2}}>🔍</div>
+            <div style={{fontSize:13,fontWeight:900,color:mode==="doubt"?"#fff":"rgba(255,255,255,.7)"}}>Ask Doubt</div>
+            <div style={{fontSize:10,fontWeight:600,color:mode==="doubt"?"rgba(255,255,255,.85)":"rgba(255,255,255,.45)",marginTop:1}}>Instant NCERT answer</div>
           </button>
-          <button onClick={()=>setMode("feynman")} style={{flex:1,padding:"13px 8px",borderRadius:16,border:"none",fontSize:13,fontWeight:900,cursor:"pointer",transition:"all .2s",
-            background:mode==="feynman"?"linear-gradient(135deg,#E91E8C,#7C3AED)":"rgba(255,255,255,.15)",
-            color:mode==="feynman"?"#fff":"rgba(255,255,255,.55)",
-            boxShadow:mode==="feynman"?"0 4px 16px rgba(233,30,140,.5)":"none",
-            transform:mode==="feynman"?"scale(1.03)":"scale(1)",
+          <button onClick={()=>setMode("feynman")} style={{
+            flex:1,padding:"11px 8px",borderRadius:16,border:"none",cursor:"pointer",
+            transition:"all .22s",fontFamily:"var(--font)",
+            background:mode==="feynman"?"linear-gradient(135deg,#E91E8C,#7C3AED)":"transparent",
+            boxShadow:mode==="feynman"?"0 4px 14px rgba(233,30,140,.55)":"none",
+            transform:mode==="feynman"?"scale(1.02)":"scale(1)",
           }}>
-            <div style={{fontSize:20,marginBottom:3}}>🧠</div>
-            <div>Deep Dive</div>
-            <div style={{fontSize:9,fontWeight:600,opacity:.8,marginTop:1}}>4-phase Feynman loop</div>
+            <div style={{fontSize:22,marginBottom:2}}>🧠</div>
+            <div style={{fontSize:13,fontWeight:900,color:mode==="feynman"?"#fff":"rgba(255,255,255,.7)"}}>Deep Dive</div>
+            <div style={{fontSize:10,fontWeight:600,color:mode==="feynman"?"rgba(255,255,255,.85)":"rgba(255,255,255,.45)",marginTop:1}}>4-phase Feynman loop</div>
           </button>
         </div>
       </div>
