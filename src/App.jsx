@@ -991,6 +991,24 @@ function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFey
           </div>
           <div style={{height:8,background:"#E9D5FF",borderRadius:4}}><div style={{height:"100%",width:((xp/2000)*100)+"%",background:"linear-gradient(90deg,#7C3AED,#E91E8C)",borderRadius:4}}/></div>
         </Card>
+
+        {/* Help & Support */}
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}><span style={{fontSize:22}}>🛟</span><span style={{fontSize:22,fontWeight:800}}>Help & Support</span></div>
+        {[
+          { icon:"🐛", label:"Report a Bug",        desc:"Found something broken? Tell us",  action:()=>{ const uid=userEmail||"unknown"; window.location.href=`mailto:pratulparmar06@gmail.com?subject=BrainBattle Bug Report - ${uid}&body=Hi Pratul,%0A%0ADescribe the bug:%0A%0ASteps to reproduce:%0A%0ADevice/Browser:%0A`; }},
+          { icon:"💡", label:"Suggest a Feature",   desc:"Have an idea? We'd love to hear it", action:()=>{ window.location.href=`mailto:pratulparmar06@gmail.com?subject=BrainBattle Feature Request&body=Hi Pratul,%0A%0AMy idea:%0A`; }},
+          { icon:"❓", label:"FAQ / How to Use",    desc:"Quick guide to BrainBattle",        action:()=>{ alert("📚 BrainBattle Quick Guide\n\n• Home: Start quizzes by subject or chapter\n• Dr. Neuron: Ask any NEET doubt\n• Mock Test: Full 200Q/3hr NEET simulation\n• Progress: Track your weak chapters\n• Ranks: See where you stand globally\n\nFree plan: 3 quizzes + 1 mock/day\nPro: Unlimited everything"); }},
+        ].map((item,i)=>(
+          <Card key={i} onClick={item.action} style={{padding:"14px 16px",marginBottom:10,cursor:"pointer",display:"flex",alignItems:"center",gap:14,border:"1.5px solid #F0EBE0"}}>
+            <div style={{width:44,height:44,borderRadius:14,background:"#F9FAFB",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{item.icon}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:14,fontWeight:700}}>{item.label}</div>
+              <div style={{fontSize:11,color:"var(--sub)",marginTop:2}}>{item.desc}</div>
+            </div>
+            <div style={{fontSize:18,color:"var(--sub2)"}}>›</div>
+          </Card>
+        ))}
+        <div style={{textAlign:"center",fontSize:11,color:"var(--sub2)",marginBottom:20,marginTop:4}}>v1.0.0 · Made with ❤️ for NEET 2026</div>
       </div>
     </div>
   );
@@ -2713,6 +2731,71 @@ function PaywallCard({onClose,onUpgrade}){
 }
 
 /* ══════════════════════════════════════
+   UPGRADE MODAL  (Value Wall)
+══════════════════════════════════════ */
+function UpgradeModal({onClose, reason="quiz"}){
+  const [toastVisible, setToastVisible] = useState(false);
+  const showToast = () => {
+    setToastVisible(true);
+    setTimeout(()=>setToastVisible(false), 2500);
+  };
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:2000,background:"rgba(0,0,0,0.6)",backdropFilter:"blur(10px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 20px"}}>
+      {/* Coming soon toast */}
+      {toastVisible&&(
+        <div style={{position:"fixed",top:32,left:"50%",transform:"translateX(-50%)",background:"#1A1A2E",color:"#fff",padding:"10px 22px",borderRadius:20,fontWeight:700,fontSize:13,zIndex:2100,boxShadow:"0 4px 20px rgba(0,0,0,.3)"}}>
+          🚧 Coming Soon — Payment integration in progress!
+        </div>
+      )}
+      <div style={{width:"100%",maxWidth:390,background:"#fff",borderRadius:28,padding:"28px 22px",boxShadow:"0 24px 60px rgba(0,0,0,.3)",animation:"scaleIn .25s ease both"}}>
+        {/* Icon + title */}
+        <div style={{textAlign:"center",marginBottom:20}}>
+          <div style={{fontSize:52,marginBottom:8}}>🔒</div>
+          <div style={{fontSize:20,fontWeight:900,color:"#1A1A2E",lineHeight:1.25}}>Free Limit Reached</div>
+          <div style={{fontSize:13,color:"#6B7280",marginTop:8,lineHeight:1.5,fontWeight:500}}>
+            You've reached your free limit for today. Unlock the full potential of BrainBattle.
+          </div>
+        </div>
+
+        {/* What you get */}
+        {[
+          ["📝","Unlimited Quizzes","Practice as much as you want, every day"],
+          ["🏥","Full Mock Tests","Complete 200-question NEET simulations"],
+          ["🧠","Unlimited Dr. Neuron","Instant AI answers to all your doubts"],
+          ["📊","Deep Analytics","Weakness heatmap & rank tracker"],
+        ].map(([icon,title,desc],i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:12,marginBottom:10,padding:"10px 12px",background:"#F8F7FF",borderRadius:14,border:"1px solid #EDE9FE"}}>
+            <div style={{fontSize:20,flexShrink:0}}>{icon}</div>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:"#1A1A2E"}}>{title}</div>
+              <div style={{fontSize:11,color:"#9CA3AF",marginTop:1}}>{desc}</div>
+            </div>
+          </div>
+        ))}
+
+        {/* Price */}
+        <div style={{background:"linear-gradient(135deg,#667EEA,#764BA2)",borderRadius:18,padding:"14px 16px",textAlign:"center",margin:"16px 0 12px"}}>
+          <div style={{fontSize:11,color:"rgba(255,255,255,.7)",fontWeight:700,letterSpacing:1,textTransform:"uppercase"}}>Doctor Lite Plan</div>
+          <div style={{display:"flex",alignItems:"baseline",gap:8,justifyContent:"center",marginTop:6}}>
+            <div style={{fontSize:16,color:"rgba(255,255,255,.45)",textDecoration:"line-through",fontWeight:500}}>₹999</div>
+            <div style={{fontSize:38,fontWeight:900,color:"#fff",lineHeight:1}}>₹599</div>
+            <div style={{fontSize:13,color:"rgba(255,255,255,.7)",fontWeight:600}}>/month</div>
+          </div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,.65)",marginTop:4}}>7-day free trial · Cancel anytime · Save 40%</div>
+        </div>
+
+        <button onClick={showToast} style={{width:"100%",padding:"15px",background:"linear-gradient(135deg,#667EEA,#764BA2)",border:"none",borderRadius:14,color:"#fff",fontSize:15,fontWeight:900,cursor:"pointer",boxShadow:"0 6px 20px rgba(102,126,234,.4)",marginBottom:10}}>
+          Upgrade to Doctor Lite 🚀
+        </button>
+        <div onClick={onClose} style={{textAlign:"center",color:"#9CA3AF",fontSize:13,fontWeight:600,cursor:"pointer",padding:"6px 0"}}>
+          Maybe later
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════
    DOUBT SCREEN
 ══════════════════════════════════════ */
 function DrNeuron({mood="idle"}){
@@ -2977,11 +3060,27 @@ export default function App(){
   const [quizChapter,  setQuizChapter]  = useState(null);
   const [browseSubject,setBrowseSubject] = useState(null);
   const startQuiz = (subj=null, ch=null) => {
+    const usage = getTodayUsage();
+    const premium = JSON.parse(localStorage.getItem("bb_premium")||"false");
+    if (!premium && usage.quizzes >= 3) {
+      setShowUpgradeModal(true);
+      return;
+    }
+    bumpUsage("quizzes");
     setQuizSubject(subj);
     setQuizChapter(ch);
     setFlow("loading");
   };
-  const startMock   = ()=>setFlow("neet_mock");
+  const startMock = () => {
+    const usage = getTodayUsage();
+    const premium = JSON.parse(localStorage.getItem("bb_premium")||"false");
+    if (!premium && usage.mocks >= 1) {
+      setShowUpgradeModal(true);
+      return;
+    }
+    bumpUsage("mocks");
+    setFlow("neet_mock");
+  };
   const goHome      = ()=>{setFlow(null);setTab("home");setMockResult(null);};
   // eslint-disable-next-line
   const openFeynman = ()=>setFlow("feynman");
@@ -3039,6 +3138,21 @@ export default function App(){
   const [isPremium,setIsPremium]=useState(()=>{ // eslint-disable-line
     return JSON.parse(localStorage.getItem("bb_premium")||"false");
   });
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+
+  // Daily usage tracker — resets each new day
+  const getTodayUsage = () => {
+    const today = new Date().toDateString();
+    const raw = localStorage.getItem("bb_usage_"+today);
+    return raw ? JSON.parse(raw) : { quizzes: 0, mocks: 0 };
+  };
+  const bumpUsage = (type) => {
+    const today = new Date().toDateString();
+    const usage = getTodayUsage();
+    usage[type] = (usage[type]||0) + 1;
+    localStorage.setItem("bb_usage_"+today, JSON.stringify(usage));
+    return usage;
+  };
   const addQuestion = (q)=>setKB(prev=>[...prev,{...q,id:prev.length+1}]);
 
   const inFlow = !!flow;
@@ -3122,6 +3236,7 @@ export default function App(){
       <div style={{maxWidth:430,margin:"0 auto",minHeight:"100vh",position:"relative",background:"var(--bg)"}}>
         {content}
         {!inFlow&&<BottomNav tab={tab} setTab={setTab} onQuiz={startQuiz}/>}
+        {showUpgradeModal&&<UpgradeModal onClose={()=>setShowUpgradeModal(false)}/>}
       </div>
     </>
   );

@@ -36,24 +36,16 @@ setPersistence(auth, browserLocalPersistence).catch(console.error);
 
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
+const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
-// Popup-first strategy: works on Brave, Chrome, Safari mobile.
-// Falls back to redirect only if popup is explicitly blocked by the browser.
 export async function signInWithGoogle() {
-  try {
+  if (isMobile) {
+    // Mobile: use redirect (popup often blocked by mobile browsers)
+    await signInWithRedirect(auth, provider);
+    return null; // page reloads; onAuthStateChanged + checkRedirectResult handles user
+  } else {
     const result = await signInWithPopup(auth, provider);
     return result.user;
-  } catch (err) {
-    if (
-      err.code === "auth/popup-blocked" ||
-      err.code === "auth/popup-closed-by-user" ||
-      err.code === "auth/cancelled-popup-request"
-    ) {
-      // Popup blocked — fall back to redirect
-      await signInWithRedirect(auth, provider);
-      return null; // page reloads; onAuthStateChanged handles user after redirect
-    }
-    throw err;
   }
 }
 
@@ -141,9 +133,14 @@ export async function saveQuizResult(uid, { score, subject, correct, total, time
 
 export async function getLeaderboard(currentUid = null) {
   try {
-    const q    = query(collection(db, "users"), orderBy("stats.totalPoints", "desc"), limit(20));
-    const snap = await getDocs(q);
-    const rows = snap.docs.map((d, i) => {
+    // Fetch real users + seeded leaderboard users, merge, sort, return top 20
+    const [usersSnap, seedSnap] = await Promise.all([
+      getDocs(query(collection(db, "users"), orderBy("stats.totalPoints", "desc"), limit(20))),
+      getDocs(query(collection(db, "leaderboard"), orderBy("totalPoints", "desc"), limit(200))),
+    ]);
+
+    // Real users
+    const realRows = usersSnap.docs.map(d => {
       const data = d.data();
       return {
         uid:    d.id,
@@ -151,22 +148,49 @@ export async function getLeaderboard(currentUid = null) {
         score:  data.stats?.totalPoints || 0,
         streak: data.stats?.streak      || 0,
         level:  data.stats?.level       || 1,
-        rank:   i + 1,
         isMe:   d.id === currentUid,
-        color:  "#667EEA",
-        emoji:  "🧠",
+        color:  "#FF6B6B",
+        emoji:  "⭐",
+        isReal: true,
       };
     });
-    if (currentUid && !rows.find(r => r.isMe)) {
+
+    // Seeded dummy users (exclude any real uid collisions)
+    const realUids = new Set(realRows.map(r => r.uid));
+    const seedRows = seedSnap.docs
+      .filter(d => !realUids.has(d.id))
+      .map(d => {
+        const data = d.data();
+        return {
+          uid:    d.id,
+          name:   data.name || "Student",
+          score:  data.totalPoints || 0,
+          streak: data.streak      || 0,
+          level:  data.level       || 1,
+          isMe:   false,
+          color:  data.color || "#667EEA",
+          emoji:  data.emoji || "🧠",
+          isReal: false,
+        };
+      });
+
+    // Merge, sort by score descending, assign ranks
+    const merged = [...realRows, ...seedRows]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 50)
+      .map((r, i) => ({ ...r, rank: i + 1 }));
+
+    // If current user not in top 50, append them at bottom
+    if (currentUid && !merged.find(r => r.isMe)) {
       const mySnap = await getDoc(doc(db, "users", currentUid));
       if (mySnap.exists()) {
         const d = mySnap.data();
-        rows.push({
+        merged.push({
           uid:    currentUid,
-          name:   d.name||"Student",
-          score:  d.stats?.totalPoints||0,
-          streak: d.stats?.streak||0,
-          level:  d.stats?.level||1,
+          name:   d.name || "Student",
+          score:  d.stats?.totalPoints || 0,
+          streak: d.stats?.streak || 0,
+          level:  d.stats?.level  || 1,
           rank:   "...",
           isMe:   true,
           color:  "#FF6B6B",
@@ -174,6 +198,6 @@ export async function getLeaderboard(currentUid = null) {
         });
       }
     }
-    return rows;
+    return merged;
   } catch (e) { console.error("getLeaderboard:", e); return []; }
 }
