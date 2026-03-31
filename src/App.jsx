@@ -2692,8 +2692,20 @@ function PaywallModal({onClose, reason="", uid=null, onSuccess=null}){
               uid: uid||"guest_"+Date.now(),
             });
             if(result.verified){
-              // 5. Mark premium in localStorage (Firestore updated by backend)
+              // 5. Mark premium in localStorage immediately
               localStorage.setItem("bb_premium","true");
+              // 6. Update Firestore is_premium for logged-in users
+              if(uid && !uid.startsWith("guest_")){
+                try{
+                  const {db} = await import("./firebase_utils");
+                  const {doc,updateDoc} = await import("firebase/firestore");
+                  await updateDoc(doc(db,"users",uid),{
+                    is_premium: true,
+                    premium_since: new Date().toISOString(),
+                    razorpay_payment_id: response.razorpay_payment_id,
+                  });
+                }catch(e){ console.error("Firestore premium update:",e); }
+              }
               setStatus("success");
               if(onSuccess) setTimeout(()=>{ onSuccess(); onClose(); }, 2000);
             } else {
