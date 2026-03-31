@@ -870,7 +870,7 @@ function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFey
   ];
   return(
     <div style={{minHeight:"100vh",paddingBottom:110,position:"relative"}}>
-      {showPaywallProfile&&<PaywallCard onClose={()=>setShowPaywallProfile(false)} onUpgrade={()=>{localStorage.setItem("bb_premium",JSON.stringify(true));setShowPaywallProfile(false);alert("Premium activated! Welcome to Pro 🎉");}}/>}
+      {showPaywallProfile&&<PaywallModal onClose={()=>setShowPaywallProfile(false)} onSuccess={()=>setShowPaywallProfile(false)}/>}
       {showKB&&<KBModal kb={kb||[]} onAdd={q=>{addQuestion&&addQuestion(q);}} onClose={()=>setShowKB(false)}/>}
       <BlobBg/>
       <div style={{position:"relative",zIndex:1,padding:"52px 18px 0"}}>
@@ -3215,7 +3215,7 @@ function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}
             </div>
           )}
 
-          {showDPaywall&&<PaywallCard onClose={()=>setShowDPaywall(false)} onUpgrade={()=>{localStorage.setItem("bb_premium","true");setShowDPaywall(false);alert("Premium activated! (Demo mode)");}}/>}
+          {showDPaywall&&<PaywallModal onClose={()=>setShowDPaywall(false)} uid={uid} onSuccess={()=>{setShowDPaywall(false);}}/>}
 
           {history.length>0&&(
             <div style={{background:"#fff",borderRadius:24,padding:20,boxShadow:"0 4px 0 #EDE9FE,0 8px 32px rgba(124,58,237,.06)",border:"1.5px solid #EDE9FE"}}>
