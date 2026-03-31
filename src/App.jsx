@@ -2495,8 +2495,18 @@ function LoginScreen({onLogin}){
         <div style={{fontSize:11,color:"rgba(255,255,255,.5)",textAlign:"center",marginTop:16,lineHeight:1.6}}>
           By continuing you agree to our Terms of Service. Your data is safe and private.
         </div>
-        <div onPointerUp={()=>onLogin({displayName:"Student",uid:"guest_"+Date.now()},("brainbattle-dev-key"))} style={{color:"rgba(255,255,255,.5)",fontSize:12,textAlign:"center",marginTop:12,cursor:"pointer",textDecoration:"underline"}}>
-          Continue as Guest
+        <div style={{display:"flex",alignItems:"center",gap:10,margin:"16px 0 4px"}}>
+          <div style={{flex:1,height:1,background:"rgba(255,255,255,.2)"}}/>
+          <div style={{fontSize:11,color:"rgba(255,255,255,.45)",fontWeight:600}}>or</div>
+          <div style={{flex:1,height:1,background:"rgba(255,255,255,.2)"}}/>
+        </div>
+        <div onPointerUp={()=>onLogin({displayName:"Student",uid:"guest_"+Date.now()},("brainbattle-dev-key"))}
+          style={{width:"100%",padding:"13px",borderRadius:16,border:"1.5px solid rgba(255,255,255,.35)",background:"rgba(255,255,255,.08)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,cursor:"pointer",WebkitTapHighlightColor:"transparent",marginTop:4}}>
+          <span style={{fontSize:18}}>👤</span>
+          <div>
+            <div style={{fontSize:14,fontWeight:800,color:"rgba(255,255,255,.9)"}}>Continue as Guest</div>
+            <div style={{fontSize:10,color:"rgba(255,255,255,.55)",fontWeight:600}}>No sign-in required · Explore the app</div>
+          </div>
         </div>
       </div>
     </div>
@@ -2606,66 +2616,193 @@ function PaywallCard({onClose,onUpgrade}){
 /* ══════════════════════════════════════
    PAYWALL MODAL  — Doctor Lite
 ══════════════════════════════════════ */
-function PaywallModal({onClose, reason=""}){
-  const [toast, setToast] = useState(false);
-  const showToast = () => { setToast(true); setTimeout(()=>setToast(false),2800); };
+// ── Razorpay helpers ──────────────────────────────────────────────────────
+const RAG_BASE = "https://brainbattle-rag-production.up.railway.app";
+
+// Load Razorpay checkout script once
+function loadRazorpayScript(){
+  return new Promise(resolve=>{
+    if(window.Razorpay){ resolve(true); return; }
+    const s=document.createElement("script");
+    s.src="https://checkout.razorpay.com/v1/checkout.js";
+    s.onload=()=>resolve(true);
+    s.onerror=()=>resolve(false);
+    document.body.appendChild(s);
+  });
+}
+
+async function createRazorpayOrder(uid){
+  const res=await fetch(`${RAG_BASE}/razorpay/create-order`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json","X-App-Token":localStorage.getItem("bb_auth_token")||"brainbattle-dev-key"},
+    body:JSON.stringify({uid:uid||"guest_"+Date.now(),amount:59900}), // amount in paise
+  });
+  if(!res.ok) throw new Error("Order creation failed");
+  return res.json();
+}
+
+async function verifyRazorpayPayment(payload){
+  const res=await fetch(`${RAG_BASE}/razorpay/verify`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json","X-App-Token":localStorage.getItem("bb_auth_token")||"brainbattle-dev-key"},
+    body:JSON.stringify(payload),
+  });
+  if(!res.ok) throw new Error("Verification failed");
+  return res.json();
+}
+
+// ── PaywallModal ───────────────────────────────────────────────────────────
+function PaywallModal({onClose, reason="", uid=null, onSuccess=null}){
+  const [status, setStatus] = useState("idle"); // idle | loading | success | error
+  const [errMsg, setErrMsg] = useState("");
+
+  const handlePay = async () => {
+    setStatus("loading");
+    setErrMsg("");
+    try{
+      // 1. Load Razorpay SDK
+      const ok = await loadRazorpayScript();
+      if(!ok) throw new Error("Could not load Razorpay. Check your internet.");
+
+      // 2. Create order on backend
+      const order = await createRazorpayOrder(uid);
+
+      // 3. Open Razorpay checkout
+      const options = {
+        key:          order.key_id,
+        amount:       order.amount,
+        currency:     "INR",
+        name:         "Parmar Labs",
+        description:  "BrainBattle — Doctor Lite Plan",
+        order_id:     order.order_id,
+        image:        "https://brainbattle-app-tu58.vercel.app/logo192.png",
+        prefill:{
+          name:  "NEET Aspirant",
+          email: "",
+          contact: "",
+        },
+        theme:{ color:"#7C3AED" },
+        handler: async (response) => {
+          // 4. Verify payment on backend
+          try{
+            const result = await verifyRazorpayPayment({
+              razorpay_order_id:   response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature:  response.razorpay_signature,
+              uid: uid||"guest_"+Date.now(),
+            });
+            if(result.verified){
+              // 5. Mark premium in localStorage (Firestore updated by backend)
+              localStorage.setItem("bb_premium","true");
+              setStatus("success");
+              if(onSuccess) setTimeout(()=>{ onSuccess(); onClose(); }, 2000);
+            } else {
+              throw new Error("Signature mismatch — payment not verified.");
+            }
+          }catch(e){
+            setStatus("error");
+            setErrMsg(e.message||"Verification failed. Contact support.");
+          }
+        },
+        modal:{ ondismiss: ()=>{ if(status==="loading") setStatus("idle"); } },
+      };
+      const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", (resp)=>{
+        setStatus("error");
+        setErrMsg(resp.error?.description||"Payment failed. Please try again.");
+      });
+      rzp.open();
+      setStatus("idle"); // Razorpay popup is open — reset button
+
+    }catch(e){
+      setStatus("error");
+      setErrMsg(e.message||"Something went wrong. Please try again.");
+    }
+  };
+
   return(
     <div style={{position:"fixed",inset:0,zIndex:2000,background:"rgba(15,10,30,0.75)",backdropFilter:"blur(12px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 18px"}}>
-      {toast&&(
-        <div style={{position:"fixed",top:28,left:"50%",transform:"translateX(-50%)",background:"#1A1A2E",color:"#fff",padding:"11px 24px",borderRadius:22,fontWeight:700,fontSize:13,zIndex:2100,boxShadow:"0 6px 24px rgba(0,0,0,.4)",whiteSpace:"nowrap"}}>
-          🚧 Razorpay integration coming soon!
-        </div>
-      )}
       <div style={{width:"100%",maxWidth:400,background:"#fff",borderRadius:32,overflow:"hidden",boxShadow:"0 32px 80px rgba(0,0,0,.35)",animation:"scaleIn .22s ease both"}}>
 
-        {/* Header band */}
+        {/* Header */}
         <div style={{background:"linear-gradient(135deg,#667EEA 0%,#764BA2 60%,#E91E8C 100%)",padding:"28px 24px 22px",textAlign:"center",position:"relative"}}>
           <div style={{position:"absolute",top:12,right:14,width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,.15)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:16}} onClick={onClose}>✕</div>
-          <div style={{fontSize:44,marginBottom:6}}>👨‍⚕️</div>
+          {status==="success"
+            ?<div style={{fontSize:60,marginBottom:8}}>🎉</div>
+            :<div style={{fontSize:44,marginBottom:6}}>👨‍⚕️</div>
+          }
           <div style={{fontSize:11,fontWeight:800,color:"rgba(255,255,255,.7)",letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>Doctor Lite Plan</div>
-          <div style={{fontSize:22,fontWeight:900,color:"#fff",lineHeight:1.2}}>Unlock Your Full</div>
-          <div style={{fontSize:22,fontWeight:900,color:"#FFD166",lineHeight:1.2}}>NEET Potential</div>
-          {reason&&<div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:8,lineHeight:1.5,fontWeight:500}}>{reason}</div>}
+          {status==="success"
+            ?<div style={{fontSize:20,fontWeight:900,color:"#FFD166"}}>You're now Premium! 🚀</div>
+            :<>
+              <div style={{fontSize:22,fontWeight:900,color:"#fff",lineHeight:1.2}}>Unlock Your Full</div>
+              <div style={{fontSize:22,fontWeight:900,color:"#FFD166",lineHeight:1.2}}>NEET Potential</div>
+            </>
+          }
+          {reason&&status!=="success"&&<div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:8,lineHeight:1.5,fontWeight:500}}>{reason}</div>}
         </div>
 
         <div style={{padding:"20px 22px 24px"}}>
-          {/* 3 core benefits */}
-          {[
-            {icon:"🧠", title:"Unlimited Dr. Neuron (RAG)", desc:"Ask any NEET doubt — instant NCERT-grounded answers, no daily cap"},
-            {icon:"🏆", title:"All-India Rank Tracker",     desc:"See your live rank among thousands of NEET 2026 aspirants"},
-            {icon:"📖", title:"Detailed Explanations",       desc:"Step-by-step solutions for every question in every mock test"},
-          ].map((b,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:12,padding:"12px 14px",background:"linear-gradient(135deg,#F8F7FF,#FFF0F8)",borderRadius:16,border:"1px solid #EDE9FE"}}>
-              <div style={{fontSize:22,flexShrink:0,marginTop:1}}>{b.icon}</div>
-              <div>
-                <div style={{fontSize:13,fontWeight:800,color:"#1A1A2E"}}>{b.title}</div>
-                <div style={{fontSize:11,color:"#6B7280",marginTop:2,lineHeight:1.4}}>{b.desc}</div>
-              </div>
-            </div>
-          ))}
+          {status!=="success"&&(
+            <>
+              {/* Benefits */}
+              {[
+                {icon:"🧠",title:"Unlimited Dr. Neuron",    desc:"Ask any doubt — instant NCERT answers, no cap"},
+                {icon:"🏆",title:"All-India Rank Tracker",  desc:"See your live rank among NEET 2026 aspirants"},
+                {icon:"📖",title:"Detailed Explanations",    desc:"Step-by-step solutions for every mock test question"},
+              ].map((b,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:10,padding:"10px 12px",background:"linear-gradient(135deg,#F8F7FF,#FFF0F8)",borderRadius:14,border:"1px solid #EDE9FE"}}>
+                  <div style={{fontSize:20,flexShrink:0,marginTop:1}}>{b.icon}</div>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:800,color:"#1A1A2E"}}>{b.title}</div>
+                    <div style={{fontSize:11,color:"#6B7280",marginTop:1,lineHeight:1.4}}>{b.desc}</div>
+                  </div>
+                </div>
+              ))}
 
-          {/* Price block */}
-          <div style={{background:"#F9F7FF",border:"2px solid #EDE9FE",borderRadius:20,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,marginTop:4}}>
-            <div>
-              <div style={{fontSize:11,fontWeight:700,color:"#9CA3AF",letterSpacing:.5,textTransform:"uppercase"}}>Monthly Plan</div>
-              <div style={{display:"flex",alignItems:"baseline",gap:8,marginTop:2}}>
-                <span style={{fontSize:15,color:"#D1D5DB",textDecoration:"line-through",fontWeight:500}}>₹999</span>
-                <span style={{fontSize:36,fontWeight:900,color:"#7C3AED",lineHeight:1}}>₹599</span>
+              {/* Price */}
+              <div style={{background:"#F9F7FF",border:"2px solid #EDE9FE",borderRadius:20,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",margin:"14px 0"}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:"#9CA3AF",letterSpacing:.5,textTransform:"uppercase"}}>Monthly Plan</div>
+                  <div style={{display:"flex",alignItems:"baseline",gap:8,marginTop:2}}>
+                    <span style={{fontSize:15,color:"#D1D5DB",textDecoration:"line-through",fontWeight:500}}>₹999</span>
+                    <span style={{fontSize:36,fontWeight:900,color:"#7C3AED",lineHeight:1}}>₹599</span>
+                  </div>
+                  <div style={{fontSize:10,color:"#9CA3AF",marginTop:2}}>Save ₹400 · Cancel anytime</div>
+                </div>
+                <div style={{textAlign:"center",background:"linear-gradient(135deg,#667EEA,#764BA2)",borderRadius:14,padding:"8px 12px"}}>
+                  <div style={{fontSize:11,fontWeight:800,color:"#fff"}}>7-Day</div>
+                  <div style={{fontSize:11,fontWeight:800,color:"#FFD166"}}>FREE</div>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,.7)"}}>Trial</div>
+                </div>
               </div>
-              <div style={{fontSize:10,color:"#9CA3AF",marginTop:2}}>Save ₹400 · Cancel anytime</div>
-            </div>
-            <div style={{textAlign:"center",background:"linear-gradient(135deg,#667EEA,#764BA2)",borderRadius:14,padding:"8px 12px"}}>
-              <div style={{fontSize:11,fontWeight:800,color:"#fff"}}>7-Day</div>
-              <div style={{fontSize:11,fontWeight:800,color:"#FFD166"}}>FREE</div>
-              <div style={{fontSize:9,color:"rgba(255,255,255,.7)"}}>Trial</div>
-            </div>
-          </div>
 
-          <button onClick={showToast} style={{width:"100%",padding:"16px",background:"linear-gradient(135deg,#667EEA,#764BA2)",border:"none",borderRadius:16,color:"#fff",fontSize:16,fontWeight:900,cursor:"pointer",boxShadow:"0 8px 24px rgba(102,126,234,.45)",marginBottom:10,letterSpacing:.3}}>
-            Pay ₹599 · Upgrade Now 🚀
-          </button>
+              {/* Error message */}
+              {status==="error"&&(
+                <div style={{background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:12,padding:"10px 14px",marginBottom:12,fontSize:12,color:"#DC2626",fontWeight:600}}>
+                  ⚠️ {errMsg}
+                </div>
+              )}
+
+              {/* Pay button */}
+              <button
+                onClick={handlePay}
+                disabled={status==="loading"}
+                style={{width:"100%",padding:"16px",background:status==="loading"?"#E9D5FF":"linear-gradient(135deg,#667EEA,#764BA2)",border:"none",borderRadius:16,color:"#fff",fontSize:16,fontWeight:900,cursor:status==="loading"?"not-allowed":"pointer",boxShadow:status==="loading"?"none":"0 8px 24px rgba(102,126,234,.45)",marginBottom:10,letterSpacing:.3,transition:"all .2s"}}>
+                {status==="loading"?"⏳ Opening Checkout...":"Pay ₹599 · Upgrade Now 🚀"}
+              </button>
+            </>
+          )}
+
+          {status==="success"&&(
+            <div style={{textAlign:"center",padding:"10px 0 6px"}}>
+              <div style={{fontSize:16,fontWeight:700,color:"#1A1A2E",marginBottom:8}}>All limits removed. Enjoy BrainBattle Pro!</div>
+              <div style={{fontSize:13,color:"#6B7280"}}>Reloading your session…</div>
+            </div>
+          )}
+
           <div onClick={onClose} style={{textAlign:"center",color:"#9CA3AF",fontSize:13,fontWeight:600,cursor:"pointer",padding:"4px 0"}}>
-            Maybe later
+            {status==="success"?"Close":"Maybe later"}
           </div>
         </div>
       </div>
@@ -2969,7 +3106,7 @@ function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}
       `}</style>
 
       {/* Feynman Paywall */}
-      {showFPaywall&&<PaywallModal onClose={()=>{setShowFPaywall(false);setFPaywallReason("");}} reason={fPaywallReason}/>}
+      {showFPaywall&&<PaywallModal onClose={()=>{setShowFPaywall(false);setFPaywallReason("");}} reason={fPaywallReason} uid={uid}/>}
 
       {/* Header */}
       <div style={{
@@ -3423,7 +3560,7 @@ export default function App(){
       <div style={{maxWidth:430,margin:"0 auto",minHeight:"100vh",position:"relative",background:"var(--bg)"}}>
         {content}
         {!inFlow&&<BottomNav tab={tab} setTab={setTab} onQuiz={startQuiz}/>}
-        {showPaywall&&<PaywallModal onClose={()=>{setShowPaywall(false);setPaywallReason("");}} reason={paywallReason}/>}
+        {showPaywall&&<PaywallModal onClose={()=>{setShowPaywall(false);setPaywallReason("");}} reason={paywallReason} uid={authUser?.uid||null} onSuccess={()=>{setUserUsage(u=>({...u,is_premium:true}));}}/>}
       </div>
     </>
   );
