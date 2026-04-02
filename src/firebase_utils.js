@@ -125,6 +125,9 @@ export async function ensureUserDoc(user) {
 export async function signInWithGoogle() {
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
   if (isMobile) {
+    // Set a flag BEFORE the page navigates away so that on reload,
+    // onAuthStateChanged(null) is not mistaken for "logged out".
+    sessionStorage.setItem("rb_redirect_pending", "true");
     await signInWithRedirect(auth, provider);
     return null; // page reloads — App.jsx picks up the user via checkRedirectResult
   }
@@ -134,6 +137,7 @@ export async function signInWithGoogle() {
   } catch (e) {
     // Popup blocked on some desktop browsers — fall back to redirect
     if (e.code === "auth/popup-blocked" || e.code === "auth/popup-closed-by-user") {
+      sessionStorage.setItem("rb_redirect_pending", "true");
       await signInWithRedirect(auth, provider);
       return null;
     }
@@ -145,12 +149,26 @@ export async function signInWithGoogle() {
  * checkRedirectResult
  * Must be called once on app mount (before onAuthStateChanged fires) to catch
  * the user returning from a Google redirect on mobile.
+ *
+ * Always clears the rb_redirect_pending flag — whether successful or not.
+ * Re-throws auth/unauthorized-domain so App.jsx can show an actionable error.
  */
 export async function checkRedirectResult() {
   try {
     const result = await getRedirectResult(auth);
+    sessionStorage.removeItem("rb_redirect_pending");
     return result; // null when no redirect was in progress
   } catch (e) {
+    sessionStorage.removeItem("rb_redirect_pending");
+    // Surface domain errors so the app can warn the user instead of silently looping
+    if (e.code === "auth/unauthorized-domain") {
+      console.error(
+        "❌ auth/unauthorized-domain — add this domain to Firebase Console:\n" +
+        "   Authentication → Settings → Authorized Domains → Add domain\n" +
+        `   Domain to add: ${window.location.hostname}`
+      );
+      throw e; // let App.jsx catch and show a clear message
+    }
     console.error("getRedirectResult error:", e);
     return null;
   }

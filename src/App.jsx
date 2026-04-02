@@ -3527,8 +3527,14 @@ export default function App(){
   // before setting authLoading=false. This prevents the login screen from
   // flashing on mobile when the user returns from a Google redirect.
   useEffect(()=>{
-    let authFired    = false; // has onAuthStateChanged fired yet?
-    let redirectDone = false; // has getRedirectResult resolved yet?
+    let authFired    = false;
+    let redirectDone = false;
+
+    // Was a redirect in progress before the page reloaded?
+    // Set by signInWithGoogle() in firebase_utils.js BEFORE calling signInWithRedirect().
+    // Guards against onAuthStateChanged(null) firing prematurely while Firebase
+    // is still processing the redirect credential — which causes the login loop.
+    const pendingRedirect = sessionStorage.getItem("rb_redirect_pending") === "true";
 
     const maybeFinish = () => {
       if (authFired && redirectDone) setAuthLoading(false);
@@ -3538,16 +3544,13 @@ export default function App(){
       if(user){
         setAuthUser(user);
         localStorage.setItem("bb_uid", user.uid);
-        // Ensure doc exists (patches old docs with usage fields too)
         await ensureUserDoc(user).catch(console.error);
-        // Fetch stats AND usage from Firestore in parallel
         const [stats, usage] = await Promise.all([
           getUserStats(user.uid),
           getUserUsage(user.uid),
         ]);
         setUserStats(stats);
         setUserUsage(usage);
-        // Sync premium status from Firestore — cannot be spoofed via localStorage
         if (usage.is_premium) localStorage.setItem("bb_premium","true");
         else localStorage.removeItem("bb_premium");
       } else {
@@ -3564,14 +3567,28 @@ export default function App(){
       if (result?.user) await handleUser(result.user);
       redirectDone = true;
       maybeFinish();
-    }).catch(e => {
-      console.error("checkRedirectResult:", e);
+    }).catch(async e => {
+      // auth/unauthorized-domain: neet.rankbattle.in not yet added to Firebase
+      // Authorized Domains — show a clear error instead of silently looping
+      if (e.code === "auth/unauthorized-domain") {
+        setAuthLoading(false);
+        // Surface error in UI — LoginScreen will catch this via the error state
+        console.error("Domain not authorized in Firebase. Add neet.rankbattle.in to Firebase Console → Authentication → Authorized Domains.");
+      }
       redirectDone = true;
       maybeFinish();
     });
 
-    // 2. Listen to auth state changes (fires for popup login + persistent sessions)
+    // 2. Listen to auth state changes
     const unsub = onAuthChange(async (user)=>{
+      // Firebase fires onAuthStateChanged(null) IMMEDIATELY on page load — even
+      // when a redirect is being processed. If we're mid-redirect, skip this
+      // null event; getRedirectResult above will supply the real user shortly.
+      if (!user && pendingRedirect && !redirectDone) {
+        // Don't treat this null as "logged out" — redirect hasn't resolved yet
+        // Don't set authFired either — let getRedirectResult drive maybeFinish()
+        return;
+      }
       await handleUser(user);
       authFired = true;
       maybeFinish();
