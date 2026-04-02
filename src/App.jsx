@@ -1371,7 +1371,7 @@ function DeepDiveButton({question}){
     try{
       const res = await fetch(`${RAG_URL}/doubt`,{
         method:"POST",
-        headers:{"Content-Type":"application/json","X-App-Token":APP_TOKEN},
+        headers:{"Content-Type":"application/json","X-App-Token":APP_TOKEN()},
         body:JSON.stringify({question:prompt, history:[]}),
       });
       const reader = res.body.getReader();
@@ -2755,7 +2755,7 @@ function PaywallModal({onClose, reason="", uid=null, onSuccess=null}){
         name:         "Parmar Labs",
         description:  "RankBattle — Doctor Lite Plan",
         order_id:     order.order_id,
-        image:        "https://brainbattle-app-tu58.vercel.app/logo192.png",
+        image:        "https://neet.rankbattle.in/logo192.png",
         prefill:{
           name:  "NEET Aspirant",
           email: "",
@@ -2929,7 +2929,9 @@ function PaywallModal({onClose, reason="", uid=null, onSuccess=null}){
    Single unified screen — two modes
 ══════════════════════════════════════ */
 const RAG_URL   = "https://brainbattle-rag-production.up.railway.app";
-const APP_TOKEN = localStorage.getItem("bb_auth_token") || "rankbattle-dev-key";
+// Always read token fresh — module-level eval would cache an empty string for new users
+const getAppToken = () => localStorage.getItem("bb_auth_token") || "rankbattle-dev-key";
+const APP_TOKEN = getAppToken; // used as APP_TOKEN() in calls below
 
 // Feynman system prompt — injected into the first RAG call as context
 const FEYNMAN_CONTEXT = `You are a hybrid of Richard Feynman (master of intuition) and a Top NEET Faculty Member for NEET 2026. Follow this 4-phase teaching loop STRICTLY — ONE PHASE PER REPLY, then STOP and WAIT for the student's response before proceeding.
@@ -3042,7 +3044,7 @@ function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}
     try{
       const res=await fetch(`${RAG_URL}/doubt`,{
         method:"POST",
-        headers:{"Content-Type":"application/json","X-App-Token":APP_TOKEN},
+        headers:{"Content-Type":"application/json","X-App-Token":APP_TOKEN()},
         body:JSON.stringify({question:q,history:[]}),
       });
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -3155,7 +3157,7 @@ function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}
     try{
       const res=await fetch(`${RAG_URL}/doubt`,{
         method:"POST",
-        headers:{"Content-Type":"application/json","X-App-Token":APP_TOKEN},
+        headers:{"Content-Type":"application/json","X-App-Token":APP_TOKEN()},
         body:JSON.stringify({
           question: questionToSend,
           history:  fHistoryRef.current.slice(0,-1),
@@ -3598,12 +3600,13 @@ export default function App(){
           setResult(r);
           const uid=localStorage.getItem("bb_uid");
           if(uid && r){
+            // 1. Save aggregate result to Firestore
             const saved=await saveQuizResult(uid,{
               score:r.ptsEarned||0,
               subject:quizSubject||"General",
-              correct:r.correct||0,
+              correct:r.score||0,
               total:r.total||5,
-              timeSecs:r.timeSecs||180,
+              timeSecs:r.timeUsed||180,
             });
             if(saved) setUserStats(s=>({...s,
               totalPoints:saved.newPoints,
@@ -3611,6 +3614,22 @@ export default function App(){
               level:saved.newLevel,
               streak:saved.newStreak,
             }));
+            // 2. Sync per-question records to Railway analytics (fire-and-forget)
+            if(r.answers && questions){
+              const perQ=Object.entries(r.answers).map(([idx,a])=>({
+                user_id:    uid,
+                subject:    quizSubject||"General",
+                chapter:    quizChapter||(questions[idx]?.chapter)||"General",
+                is_correct: a.correct,
+                time_spent: (r.timeUsed||180)/Math.max(Object.keys(r.answers).length,1),
+                q_id:       String(questions[idx]?.id||idx),
+              }));
+              fetch(`${RAG_URL}/sync-progress`,{
+                method:"POST",
+                headers:{"Content-Type":"application/json","X-App-Token":getAppToken()},
+                body:JSON.stringify(perQ),
+              }).catch(e=>console.warn("sync-progress:",e));
+            }
           }
           setFlow("results");
         }}/>;
