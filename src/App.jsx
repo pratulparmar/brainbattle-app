@@ -3524,21 +3524,27 @@ export default function App(){
   const openDoubt   = ()=>setFlow("doubt");
 
   // Firebase auth — waits for BOTH onAuthStateChanged AND getRedirectResult
-  // before setting authLoading=false. This prevents the login screen from
-  // flashing on mobile when the user returns from a Google redirect.
+  // before setting authLoading=false.
   useEffect(()=>{
     let authFired    = false;
     let redirectDone = false;
 
     // Was a redirect in progress before the page reloaded?
     // Set by signInWithGoogle() in firebase_utils.js BEFORE calling signInWithRedirect().
-    // Guards against onAuthStateChanged(null) firing prematurely while Firebase
-    // is still processing the redirect credential — which causes the login loop.
     const pendingRedirect = sessionStorage.getItem("rb_redirect_pending") === "true";
 
     const maybeFinish = () => {
       if (authFired && redirectDone) setAuthLoading(false);
     };
+
+    // Safety net — if both flags somehow never converge (e.g. Firebase SDK bug,
+    // network timeout, unauthorized domain), unblock the app after 6 seconds
+    // so the user sees the login screen rather than a stuck spinner forever.
+    const safetyTimer = setTimeout(() => {
+      if (!authFired)    authFired    = true;
+      if (!redirectDone) redirectDone = true;
+      setAuthLoading(false);
+    }, 6000);
 
     const handleUser = async (user) => {
       if(user){
@@ -3562,38 +3568,54 @@ export default function App(){
       }
     };
 
-    // 1. Check redirect result first (catches mobile Google redirect return)
+    // 1. getRedirectResult — catches mobile Google redirect return
     checkRedirectResult().then(async (result) => {
-      if (result?.user) await handleUser(result.user);
+      if (result?.user) {
+        // ✅ Redirect succeeded — user is signed in
+        await handleUser(result.user);
+        authFired = true; // getRedirectResult owns both flags when it returns a user
+      } else if (pendingRedirect) {
+        // Redirect was attempted but returned null — domain not yet authorized in
+        // Firebase Console, or user cancelled. onAuthStateChanged(null) was skipped
+        // by the guard below, so WE must call handleUser(null) here to unblock.
+        await handleUser(null);
+        authFired = true;
+      }
+      // If pendingRedirect was false, this is a normal page load —
+      // onAuthStateChanged will handle authFired via the normal path.
       redirectDone = true;
+      clearTimeout(safetyTimer);
       maybeFinish();
     }).catch(async e => {
-      // auth/unauthorized-domain: neet.rankbattle.in not yet added to Firebase
-      // Authorized Domains — show a clear error instead of silently looping
       if (e.code === "auth/unauthorized-domain") {
-        setAuthLoading(false);
-        // Surface error in UI — LoginScreen will catch this via the error state
-        console.error("Domain not authorized in Firebase. Add neet.rankbattle.in to Firebase Console → Authentication → Authorized Domains.");
+        console.error(
+          "❌ Firebase unauthorized domain — go to Firebase Console →\n" +
+          "   Authentication → Settings → Authorized Domains → Add domain\n" +
+          `   Add: ${window.location.hostname}`
+        );
+      } else {
+        console.error("checkRedirectResult:", e);
       }
+      await handleUser(null);
+      authFired    = true;
       redirectDone = true;
-      maybeFinish();
+      clearTimeout(safetyTimer);
+      setAuthLoading(false);
     });
 
-    // 2. Listen to auth state changes
+    // 2. onAuthStateChanged — primary listener for all non-redirect auth events
     const unsub = onAuthChange(async (user)=>{
       // Firebase fires onAuthStateChanged(null) IMMEDIATELY on page load — even
-      // when a redirect is being processed. If we're mid-redirect, skip this
-      // null event; getRedirectResult above will supply the real user shortly.
+      // while a redirect credential is still being processed. Skip this premature
+      // null so we don't flash the login screen before getRedirectResult finishes.
       if (!user && pendingRedirect && !redirectDone) {
-        // Don't treat this null as "logged out" — redirect hasn't resolved yet
-        // Don't set authFired either — let getRedirectResult drive maybeFinish()
         return;
       }
       await handleUser(user);
       authFired = true;
       maybeFinish();
     });
-    return ()=>unsub();
+    return ()=>{ unsub(); clearTimeout(safetyTimer); };
   },[]);// eslint-disable-line
 
   const [showOnboarding,setShowOnboarding]=useState(()=>{
