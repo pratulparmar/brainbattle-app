@@ -21,13 +21,13 @@ import { getAuth, GoogleAuthProvider, signInWithPopup,
 //  (authDomain stays brainbattle-neet.firebaseapp.com even after brand rename)
 // ══════════════════════════════════════════════════════════════════════════════
 const firebaseConfig = {
-  // ⚠️  PASTE YOUR EXISTING CONFIG VALUES HERE — do not alter them
-  apiKey:            "KEEP_YOUR_EXISTING_VALUE",
+  apiKey:            "AIzaSyC4awLUkV8Z1PqFCW0FLVlpXhyoGud4dwg",
   authDomain:        "brainbattle-neet.firebaseapp.com",
   projectId:         "brainbattle-neet",
-  storageBucket:     "brainbattle-neet.appspot.com",
-  messagingSenderId: "KEEP_YOUR_EXISTING_VALUE",
-  appId:             "KEEP_YOUR_EXISTING_VALUE",
+  storageBucket:     "brainbattle-neet.firebasestorage.app",
+  messagingSenderId: "655830697038",
+  appId:             "1:655830697038:web:61918bd3a81942a6bb6f1f",
+  measurementId:     "G-9PEMJZFE87",
 };
 
 const _app   = initializeApp(firebaseConfig);
