@@ -99,6 +99,17 @@ export async function ensureUserDoc(user) {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+
+    // 🎉 New user — send welcome email (fire-and-forget, don't block signup)
+    if (user.email) {
+      const firstName = (user.displayName || "Student").split(" ")[0];
+      fetch("https://brainbattle-rag-production.up.railway.app/email/welcome", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "X-App-Token": "rankbattle-dev-key" },
+        body:    JSON.stringify({ email: user.email, first_name: firstName }),
+      }).catch(e => console.warn("Welcome email failed:", e));
+    }
+
   } else {
     // Patch old docs that don't have usage/is_premium fields yet
     const data = snap.data();

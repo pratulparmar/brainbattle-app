@@ -178,7 +178,7 @@ function HomeScreen({onQuiz,onMock,onBrowse,onDoubt,score,rank,streak,accuracy})
         <div style={{padding:"52px 20px 0",display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
           <div>
             <div style={{fontSize:13,color:"#9CA3AF",fontWeight:600,marginBottom:2}}>Good day! 👋</div>
-            <div style={{fontSize:28,fontWeight:900,color:"#1A1A2E",letterSpacing:-0.5,lineHeight:1}}>BrainBattle</div>
+            <div style={{fontSize:28,fontWeight:900,color:"#1A1A2E",letterSpacing:-0.5,lineHeight:1}}>RankBattle</div>
             <div style={{fontSize:12,color:"#9CA3AF",marginTop:3,fontWeight:600}}>NEET 2026 Ready 🎯</div>
           </div>
           <div style={{textAlign:"right"}}>
@@ -874,7 +874,7 @@ function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFey
       {showKB&&<KBModal kb={kb||[]} onAdd={q=>{addQuestion&&addQuestion(q);}} onClose={()=>setShowKB(false)}/>}
       <BlobBg/>
       <div style={{position:"relative",zIndex:1,padding:"52px 18px 0"}}>
-        <div style={{fontSize:30,fontWeight:900,color:"var(--orange)",letterSpacing:-0.5,marginBottom:20}}>BrainBattle</div>
+        <div style={{fontSize:30,fontWeight:900,color:"var(--orange)",letterSpacing:-0.5,marginBottom:20}}>RankBattle</div>
         <Card style={{padding:"20px 18px",marginBottom:16}}>
           <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:16}}>
             <div style={{width:72,height:72,borderRadius:"50%",background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:34,flexShrink:0,boxShadow:"0 4px 16px rgba(233,30,140,.3)"}}>🎯</div>
@@ -995,9 +995,9 @@ function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFey
         {/* Help & Support */}
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}><span style={{fontSize:22}}>🛟</span><span style={{fontSize:22,fontWeight:800}}>Help & Support</span></div>
         {[
-          { icon:"🐛", label:"Report a Bug",        desc:"Found something broken? Tell us",  action:()=>{ const uid=userEmail||"unknown"; window.location.href=`mailto:pratulparmar06@gmail.com?subject=BrainBattle Bug Report - ${uid}&body=Hi Pratul,%0A%0ADescribe the bug:%0A%0ASteps to reproduce:%0A%0ADevice/Browser:%0A`; }},
-          { icon:"💡", label:"Suggest a Feature",   desc:"Have an idea? We'd love to hear it", action:()=>{ window.location.href=`mailto:pratulparmar06@gmail.com?subject=BrainBattle Feature Request&body=Hi Pratul,%0A%0AMy idea:%0A`; }},
-          { icon:"❓", label:"FAQ / How to Use",    desc:"Quick guide to BrainBattle",        action:()=>{ alert("📚 BrainBattle Quick Guide\n\n• Home: Start quizzes by subject or chapter\n• Dr. Neuron: Ask any NEET doubt\n• Mock Test: Full 200Q/3hr NEET simulation\n• Progress: Track your weak chapters\n• Ranks: See where you stand globally\n\nFree plan: 3 quizzes + 1 mock/day\nPro: Unlimited everything"); }},
+          { icon:"🐛", label:"Report a Bug",        desc:"Found something broken? Tell us",  action:()=>{ const uid=userEmail||"unknown"; window.location.href=`mailto:p@rankbattle.in?subject=RankBattle Bug Report - ${uid}&body=Hi Pratul,%0A%0ADescribe the bug:%0A%0ASteps to reproduce:%0A%0ADevice/Browser:%0A`; }},
+          { icon:"💡", label:"Suggest a Feature",   desc:"Have an idea? We'd love to hear it", action:()=>{ window.location.href=`mailto:p@rankbattle.in?subject=RankBattle Feature Request&body=Hi Pratul,%0A%0AMy idea:%0A`; }},
+          { icon:"❓", label:"FAQ / How to Use",    desc:"Quick guide to RankBattle",        action:()=>{ alert("📚 RankBattle Quick Guide\n\n• Home: Start quizzes by subject or chapter\n• Dr. Neuron: Ask any NEET doubt\n• Mock Test: Full 200Q/3hr NEET simulation\n• Progress: Track your weak chapters\n• Ranks: See where you stand globally\n\nFree plan: 3 quizzes + 1 mock/day\nPro: Unlimited everything"); }},
         ].map((item,i)=>(
           <Card key={i} onClick={item.action} style={{padding:"14px 16px",marginBottom:10,cursor:"pointer",display:"flex",alignItems:"center",gap:14,border:"1.5px solid #F0EBE0"}}>
             <div style={{width:44,height:44,borderRadius:14,background:"#F9FAFB",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{item.icon}</div>
@@ -1008,7 +1008,21 @@ function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFey
             <div style={{fontSize:18,color:"var(--sub2)"}}>›</div>
           </Card>
         ))}
-        <div style={{textAlign:"center",fontSize:11,color:"var(--sub2)",marginBottom:20,marginTop:4}}>v1.0.0 · Made with ❤️ for NEET 2026</div>
+        <div style={{textAlign:"center",marginBottom:20,marginTop:8}}>
+          <div style={{fontSize:11,color:"var(--sub2)",marginBottom:6}}>v1.0.0 · A Product of ParmarLabs · Made with ❤️ for NEET 2026</div>
+          <div style={{display:"flex",gap:14,justifyContent:"center",flexWrap:"wrap"}}>
+            {[
+              {label:"Terms & Conditions", text:"By using RankBattle, you agree to use the platform solely for educational purposes. All content is AI-generated and intended to supplement NCERT preparation. RankBattle and ParmarLabs reserve the right to modify or discontinue services at any time."},
+              {label:"Privacy Policy",     text:"RankBattle collects only the data necessary to provide our service (Google account name, email, and quiz performance). We do not sell your data to third parties. Your data is stored securely on Firebase and Railway."},
+              {label:"Refund Policy",      text:"All sales for RankBattle digital credits and AI-generated mock tests are final and non-refundable once the generation services have been accessed."},
+            ].map((item,i)=>(
+              <span key={i} onClick={()=>alert("📄 "+item.label+"\n\n"+item.text)}
+                style={{fontSize:10,color:"var(--sub)",textDecoration:"underline",cursor:"pointer",fontWeight:600}}>
+                {item.label}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1337,6 +1351,68 @@ function FullscreenImage({content, isSvg, alt, onClose}) {
   );
 }
 
+/* ══════════════════════════════════════
+   FEYNMAN DEEP DIVE BUTTON
+   Shown after a wrong answer — calls RAG
+   backend with Feynman Technique prompt
+══════════════════════════════════════ */
+function DeepDiveButton({question}){
+  const [open,setOpen]   = useState(false);
+  const [text,setText]   = useState("");
+  const [loading,setLoading] = useState(false);
+
+  const fetchDeepDive = async () => {
+    if(text) { setOpen(true); return; }
+    setOpen(true);
+    setLoading(true);
+    const concept = question.tag || question.chapter || question.subject || "this concept";
+    const prompt  = `Explain the following concept using the Feynman Technique: ${concept}. Use simple analogies suitable for a beginner (12-year-old). Keep it under 150 words. Make it memorable with one vivid analogy. Then in one sentence, connect it back to the NEET exam context.`;
+    let full = "";
+    try{
+      const res = await fetch(`${RAG_URL}/doubt`,{
+        method:"POST",
+        headers:{"Content-Type":"application/json","X-App-Token":APP_TOKEN},
+        body:JSON.stringify({question:prompt, history:[]}),
+      });
+      const reader = res.body.getReader();
+      const dec    = new TextDecoder();
+      while(true){
+        const {done,value} = await reader.read();
+        if(done) break;
+        for(const line of dec.decode(value,{stream:true}).split("\n")){
+          if(!line.startsWith("data: ")) continue;
+          try{
+            const evt = JSON.parse(line.slice(6));
+            if(evt.type==="token"){ full+=evt.text; setText(full); }
+          }catch(e){}
+        }
+      }
+    }catch(e){ setText("⚠️ Could not load Deep Dive. Check your connection."); }
+    setLoading(false);
+  };
+
+  return(
+    <div style={{marginTop:10}}>
+      <button onClick={fetchDeepDive}
+        style={{padding:"7px 14px",background:"linear-gradient(135deg,#EDE9FE,#FDF4FF)",border:"1.5px solid #C4B5FD",borderRadius:12,fontSize:11,fontWeight:800,color:"#7C3AED",cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+        🧠 Feynman's Deep Dive
+      </button>
+      {open&&(
+        <div style={{marginTop:8,padding:"12px 14px",background:"#F9F7FF",borderRadius:14,border:"1.5px solid #EDE9FE",animation:"fadeUp .3s ease"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div style={{fontSize:11,fontWeight:800,color:"#7C3AED"}}>🧠 Feynman's Deep Dive</div>
+            <button onClick={()=>setOpen(false)} style={{background:"transparent",border:"none",fontSize:14,color:"#9CA3AF",cursor:"pointer"}}>✕</button>
+          </div>
+          {loading
+            ? <div style={{fontSize:12,color:"#9CA3AF",fontStyle:"italic"}}>Simplifying for you…</div>
+            : <div style={{fontSize:12,color:"var(--tx)",lineHeight:1.7,whiteSpace:"pre-wrap"}}>{text}</div>
+          }
+        </div>
+      )}
+    </div>
+  );
+}
+
 function QuizScreen({questions,onFinish}){
   const [qIdx,setQIdx]=useState(0);
   const [answers,setAnswers]=useState({});
@@ -1448,7 +1524,11 @@ function QuizScreen({questions,onFinish}){
             <Card style={{padding:"12px 14px",background:feedback==="correct"?"#F0FDF4":"#FFF9F0",border:"1.5px solid "+(feedback==="correct"?"var(--green)":"var(--amber)"),animation:"fadeUp .3s ease"}}>
               <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
                 <span style={{fontSize:22,flexShrink:0}}>{feedback==="correct"?"🎯":"💡"}</span>
-                <div><div style={{fontSize:11,fontWeight:700,color:feedback==="correct"?"var(--green)":"var(--amber)",marginBottom:3}}>{feedback==="correct"?"CORRECT! +"+q.pts+" pts":"EXPLANATION"}</div><div style={{fontSize:12,color:"var(--tx)",lineHeight:1.5}}>{q.exp}</div></div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:11,fontWeight:700,color:feedback==="correct"?"var(--green)":"var(--amber)",marginBottom:3}}>{feedback==="correct"?"CORRECT! +"+q.pts+" pts":"EXPLANATION"}</div>
+                  <div style={{fontSize:12,color:"var(--tx)",lineHeight:1.5}}>{q.exp}</div>
+                  {feedback==="wrong"&&<DeepDiveButton question={q}/>}
+                </div>
               </div>
             </Card>
           )}
@@ -2279,7 +2359,7 @@ function DashboardScreen({score,rank,streak,accuracy,userStats,uid,onBack}){
       const userId=localStorage.getItem("bb_uid");
       if(userId){
         try{
-          const token=localStorage.getItem("bb_auth_token")||"brainbattle-dev-key";
+          const token=localStorage.getItem("bb_auth_token")||"rankbattle-dev-key";
           const res=await fetch(`https://brainbattle-rag-production.up.railway.app/user-analytics/${userId}`,{
             headers:{"X-App-Token":token}
           });
@@ -2467,7 +2547,7 @@ function LoginScreen({onLogin}){
 
       {/* Logo */}
       <div style={{fontSize:80,animation:"loginFloat 3s ease infinite",marginBottom:8}}>🧠</div>
-      <div style={{fontSize:32,fontWeight:900,color:"#fff",letterSpacing:-1,marginBottom:4}}>BrainBattle</div>
+      <div style={{fontSize:32,fontWeight:900,color:"#fff",letterSpacing:-1,marginBottom:4}}>RankBattle</div>
       <div style={{fontSize:14,color:"rgba(255,255,255,.7)",fontWeight:600,marginBottom:48}}>NEET 2026 Preparation</div>
 
       {/* Card */}
@@ -2500,7 +2580,7 @@ function LoginScreen({onLogin}){
           <div style={{fontSize:11,color:"rgba(255,255,255,.45)",fontWeight:600}}>or</div>
           <div style={{flex:1,height:1,background:"rgba(255,255,255,.2)"}}/>
         </div>
-        <div onPointerUp={()=>onLogin({displayName:"Student",uid:"guest_"+Date.now()},("brainbattle-dev-key"))}
+        <div onPointerUp={()=>onLogin({displayName:"Student",uid:"guest_"+Date.now()},("rankbattle-dev-key"))}
           style={{width:"100%",padding:"13px",borderRadius:16,border:"1.5px solid rgba(255,255,255,.35)",background:"rgba(255,255,255,.08)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,cursor:"pointer",WebkitTapHighlightColor:"transparent",marginTop:4}}>
           <span style={{fontSize:18}}>👤</span>
           <div>
@@ -2634,7 +2714,7 @@ function loadRazorpayScript(){
 async function createRazorpayOrder(uid){
   const res=await fetch(`${RAG_BASE}/razorpay/create-order`,{
     method:"POST",
-    headers:{"Content-Type":"application/json","X-App-Token":localStorage.getItem("bb_auth_token")||"brainbattle-dev-key"},
+    headers:{"Content-Type":"application/json","X-App-Token":localStorage.getItem("bb_auth_token")||"rankbattle-dev-key"},
     body:JSON.stringify({uid:uid||"guest_"+Date.now(),amount:59900}), // amount in paise
   });
   if(!res.ok) throw new Error("Order creation failed");
@@ -2644,7 +2724,7 @@ async function createRazorpayOrder(uid){
 async function verifyRazorpayPayment(payload){
   const res=await fetch(`${RAG_BASE}/razorpay/verify`,{
     method:"POST",
-    headers:{"Content-Type":"application/json","X-App-Token":localStorage.getItem("bb_auth_token")||"brainbattle-dev-key"},
+    headers:{"Content-Type":"application/json","X-App-Token":localStorage.getItem("bb_auth_token")||"rankbattle-dev-key"},
     body:JSON.stringify(payload),
   });
   if(!res.ok) throw new Error("Verification failed");
@@ -2673,7 +2753,7 @@ function PaywallModal({onClose, reason="", uid=null, onSuccess=null}){
         amount:       order.amount,
         currency:     "INR",
         name:         "Parmar Labs",
-        description:  "BrainBattle — Doctor Lite Plan",
+        description:  "RankBattle — Doctor Lite Plan",
         order_id:     order.order_id,
         image:        "https://brainbattle-app-tu58.vercel.app/logo192.png",
         prefill:{
@@ -2699,11 +2779,30 @@ function PaywallModal({onClose, reason="", uid=null, onSuccess=null}){
                 try{
                   const {db} = await import("./firebase_utils");
                   const {doc,updateDoc} = await import("firebase/firestore");
+                  const userDoc = await (await import("firebase/firestore")).getDoc(
+                    (await import("firebase/firestore")).doc(db,"users",uid)
+                  );
+                  const userData = userDoc.exists() ? userDoc.data() : {};
                   await updateDoc(doc(db,"users",uid),{
                     is_premium: true,
                     premium_since: new Date().toISOString(),
                     razorpay_payment_id: response.razorpay_payment_id,
                   });
+                  // 7. Send subscription confirmation email (fire-and-forget)
+                  if(userData.email){
+                    const firstName = (userData.name||"Student").split(" ")[0];
+                    fetch(`${RAG_BASE}/email/subscription`,{
+                      method:"POST",
+                      headers:{"Content-Type":"application/json","X-App-Token":localStorage.getItem("bb_auth_token")||"rankbattle-dev-key"},
+                      body:JSON.stringify({
+                        email:      userData.email,
+                        first_name: firstName,
+                        plan_name:  "Doctor Lite",
+                        amount:     "599",
+                        payment_id: response.razorpay_payment_id,
+                      }),
+                    }).catch(e=>console.warn("Subscription email failed:",e));
+                  }
                 }catch(e){ console.error("Firestore premium update:",e); }
               }
               setStatus("success");
@@ -2808,7 +2907,7 @@ function PaywallModal({onClose, reason="", uid=null, onSuccess=null}){
 
           {status==="success"&&(
             <div style={{textAlign:"center",padding:"10px 0 6px"}}>
-              <div style={{fontSize:16,fontWeight:700,color:"#1A1A2E",marginBottom:8}}>All limits removed. Enjoy BrainBattle Pro!</div>
+              <div style={{fontSize:16,fontWeight:700,color:"#1A1A2E",marginBottom:8}}>All limits removed. Enjoy RankBattle Pro!</div>
               <div style={{fontSize:13,color:"#6B7280"}}>Reloading your session…</div>
             </div>
           )}
@@ -2830,7 +2929,7 @@ function PaywallModal({onClose, reason="", uid=null, onSuccess=null}){
    Single unified screen — two modes
 ══════════════════════════════════════ */
 const RAG_URL   = "https://brainbattle-rag-production.up.railway.app";
-const APP_TOKEN = localStorage.getItem("bb_auth_token") || "brainbattle-dev-key";
+const APP_TOKEN = localStorage.getItem("bb_auth_token") || "rankbattle-dev-key";
 
 // Feynman system prompt — injected into the first RAG call as context
 const FEYNMAN_CONTEXT = `You are a hybrid of Richard Feynman (master of intuition) and a Top NEET Faculty Member for NEET 2026. Follow this 4-phase teaching loop STRICTLY — ONE PHASE PER REPLY, then STOP and WAIT for the student's response before proceeding.
@@ -3532,7 +3631,7 @@ export default function App(){
   if(authLoading) return(
     <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#667EEA,#764BA2)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
       <div style={{fontSize:60}}>🧠</div>
-      <div style={{fontSize:16,fontWeight:700,color:"#fff"}}>Loading BrainBattle...</div>
+      <div style={{fontSize:16,fontWeight:700,color:"#fff"}}>Loading RankBattle...</div>
     </div>
   );
 
