@@ -6,6 +6,10 @@ import { QB, getRandom, getChaptersForSubject, QB_STATS } from "./QB.js";
 /* ══════════════════════════════════════
    SUBJECT META
 ══════════════════════════════════════ */
+/* ── Single API base — never use localhost in production ──────────────── */
+const API_BASE  = "https://brainbattle-rag-production.up.railway.app";
+const getAppToken = () => localStorage.getItem("bb_auth_token") || "rankbattle-dev-key";
+
 /* ── Launch Week Config ─────────────────────────────────────────── */
 const LAUNCH_WEEK_ACTIVE = true;
 const LAUNCH_END_DATE    = new Date("2026-04-10T23:59:59+05:30");
@@ -2673,8 +2677,8 @@ function DashboardScreen({score,rank,streak,accuracy,userStats,uid,onBack,referr
       const userId=localStorage.getItem("bb_uid");
       if(userId){
         try{
-          const token=localStorage.getItem("bb_auth_token")||"rankbattle-dev-key";
-          const res=await fetch(`https://brainbattle-rag-production.up.railway.app/user-analytics/${userId}`,{
+          const token=getAppToken();
+          const res=await fetch(`${API_BASE}/user-analytics/${userId}`,{
             headers:{"X-App-Token":token}
           });
           if(res.ok){
@@ -3020,7 +3024,7 @@ function PaywallCard({onClose,onUpgrade}){
    PAYWALL MODAL  — Doctor Lite
 ══════════════════════════════════════ */
 // ── Razorpay helpers ──────────────────────────────────────────────────────
-const RAG_BASE = "https://brainbattle-rag-production.up.railway.app";
+const RAG_BASE = API_BASE; // alias — use API_BASE for new code
 
 // Load Razorpay checkout script once
 function loadRazorpayScript(){
@@ -3251,10 +3255,8 @@ function PaywallModal({onClose, reason="", uid=null, onSuccess=null}){
    DR NEURON  +  DEEP DIVE (Feynman)
    Single unified screen — two modes
 ══════════════════════════════════════ */
-const RAG_URL   = "https://brainbattle-rag-production.up.railway.app";
-// Always read token fresh — module-level eval would cache an empty string for new users
-const getAppToken = () => localStorage.getItem("bb_auth_token") || "rankbattle-dev-key";
-const APP_TOKEN = getAppToken; // used as APP_TOKEN() in calls below
+const RAG_URL   = API_BASE; // use API_BASE for all new calls
+const APP_TOKEN = getAppToken; // getAppToken defined at top of file
 
 // Feynman system prompt — injected into the first RAG call as context
 const FEYNMAN_CONTEXT = `You are a hybrid of Richard Feynman (master of intuition) and a Top NEET Faculty Member for NEET 2026. Follow this 4-phase teaching loop STRICTLY — ONE PHASE PER REPLY, then STOP and WAIT for the student's response before proceeding.
