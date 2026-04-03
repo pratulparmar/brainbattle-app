@@ -988,32 +988,53 @@ ${transcript}`
 /* ══════════════════════════════════════
    RANKINGS
 ══════════════════════════════════════ */
-function RanksScreen({currentUid}){
-  const [data,setData]=useState([]);
-  const [loading,setLoading]=useState(true);
+function RanksScreen({currentUid, userStats}){
+  const [data, setData]       = useState([]);
+  const [myEntry, setMyEntry] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(()=>{
-    getLeaderboard(currentUid).then(rows=>{
-      if(rows && rows.length>0) setData(rows);
-      else setData(LB_DATA.map((r,i)=>({...r,rank:i+1,isMe:false})));
-      setLoading(false);
-    }).catch(e=>{
-      console.log("Leaderboard:",e);
-      setData(LB_DATA.map((r,i)=>({...r,rank:i+1,isMe:false})));
-      setLoading(false);
-    });
-  },[currentUid]); // eslint-disable-line
-  const top3=data.slice(0,3);
-  const rest=data.slice(3);
-  // Safe podium - only render if we have enough data
-  const podiumOrder=[top3[1],top3[0],top3[2]];
-  const podiumH=[80,110,65];
-  const podiumBg=["#E8E8E8","var(--grad)","#FF8C00"];
-  const podiumBadge=["🥈","🥇","🥉"];
+    // Step 1: Always build a populated list immediately from LB_DATA — never blank
+    const base = LB_DATA.map((r,i)=>({...r, rank:i+1, isMe: r.name==="You"}));
+    setData(base);
+    setLoading(false);
 
-  // Show loading or empty state
+    // Step 2: Try to get the real user's stats and inject them into the list
+    if(!currentUid) return;
+    getUserStats(currentUid).then(stats=>{
+      if(!stats || stats.totalPoints === 0) return; // no data yet
+      const me = {
+        name:   "You",
+        init:   "ME",
+        emoji:  "🎯",
+        score:  stats.totalPoints,
+        rank:   stats.rank || 7,
+        prev:   null,
+        streak: stats.streak || 0,
+        color:  "var(--pink)",
+        isMe:   true,
+      };
+      setMyEntry(me);
+      // Merge user into base list at their rank position, replace the placeholder "You"
+      setData(prev => {
+        const without = prev.filter(r => !r.isMe);
+        const inserted = [...without, me].sort((a,b)=>b.score-a.score)
+          .map((r,i)=>({...r, rank:i+1}));
+        return inserted;
+      });
+    }).catch(()=>{}); // silently ignore — we already have the fallback
+  },[currentUid]); // eslint-disable-line
+
+  const top3        = data.slice(0,3);
+  const rest        = data.slice(3);
+  const podiumOrder = [top3[1]||null, top3[0]||null, top3[2]||null];
+  const podiumH     = [80,110,65];
+  const podiumBg    = ["#C0C0C0","var(--grad)","#CD7F32"];
+  const podiumBadge = ["🥈","🥇","🥉"];
+
   if(loading) return(
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)"}}>
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",
+      justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)"}}>
       <div style={{fontSize:48}}>🏆</div>
       <div style={{fontSize:16,fontWeight:700,color:"var(--tx)"}}>Loading Rankings...</div>
     </div>
@@ -1031,7 +1052,7 @@ function RanksScreen({currentUid}){
           </div>
         </div>
         <div style={{padding:"0 18px"}}>
-          {top3.length>=3&&(
+          {top3.length>=3&&top3.every(p=>p)&&(
           <div style={{display:"flex",justifyContent:"center",alignItems:"flex-end",gap:16,marginTop:24,marginBottom:16}}>
             {podiumOrder.map((p,i)=>p&&(
               <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8}}>
@@ -1041,30 +1062,53 @@ function RanksScreen({currentUid}){
                 </div>
                 <div style={{textAlign:"center"}}>
                   <div style={{fontSize:13,fontWeight:700}}>{p.name.split(" ")[0]}</div>
-                  <div style={{fontSize:11,color:"var(--sub)"}}>{p.score.toLocaleString()} pts</div>
+                  <div style={{fontSize:11,color:"var(--sub)"}}>{(p.score||p.totalPoints||0).toLocaleString()} pts</div>
                 </div>
                 <div style={{width:90,height:podiumH[i],borderRadius:"12px 12px 0 0",background:podiumBg[i],display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:20,color:"#fff",boxShadow:"0 4px 16px rgba(0,0,0,.12)"}}>#{i===0?2:i===1?1:3}</div>
               </div>
             ))}
           </div>
           )}
+          {data.length === 0 && (
+            <div style={{textAlign:"center",padding:"40px 20px",color:"var(--sub)"}}>
+              <div style={{fontSize:40,marginBottom:12}}>🏆</div>
+              <div style={{fontSize:15,fontWeight:700}}>No rankings yet</div>
+              <div style={{fontSize:12,marginTop:6}}>Complete a quiz to appear here!</div>
+            </div>
+          )}
           {rest.map((p,i)=>{
-            const isMe=p.isMe||(p.name==="You");
-            const moved=(p.prev!=null)?(p.prev-p.rank):0;
+            if(!p) return null;
+            const isMe = p.isMe || p.name==="You";
+            const moved = (p.prev!=null) ? (p.prev-p.rank) : 0;
+            const displayScore = (p.score||p.totalPoints||0).toLocaleString();
+            const rowColor = p.color||"#667EEA";
             return(
               <div key={i} style={{position:"relative",marginBottom:10}}>
-                {isMe&&<div style={{position:"absolute",top:-10,left:"50%",transform:"translateX(-50%)",background:"var(--grad)",color:"#fff",fontSize:10,fontWeight:700,padding:"2px 10px",borderRadius:10,zIndex:2,letterSpacing:.5}}>YOU</div>}
-                <Card style={{padding:"14px 16px",border:isMe?"2px solid var(--orange)":"none",background:isMe?"#FFF5F0":"#fff"}}>
+                {isMe&&<div style={{position:"absolute",top:-10,left:"50%",
+                  transform:"translateX(-50%)",background:"var(--grad)",
+                  color:"#fff",fontSize:10,fontWeight:700,padding:"2px 10px",
+                  borderRadius:10,zIndex:2,letterSpacing:.5}}>YOU</div>}
+                <Card style={{padding:"14px 16px",
+                  border:isMe?"2px solid var(--orange)":"none",
+                  background:isMe?"#FFF5F0":"#fff"}}>
                   <div style={{display:"flex",alignItems:"center",gap:12}}>
-                    <div style={{width:36,height:36,borderRadius:10,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:13,flexShrink:0}}>#{p.rank}</div>
-                    <div style={{width:44,height:44,borderRadius:"50%",background:p.color+"33",border:"2px solid "+p.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{p.emoji}</div>
+                    <div style={{width:36,height:36,borderRadius:10,background:"var(--grad)",
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      color:"#fff",fontWeight:800,fontSize:13,flexShrink:0}}>#{p.rank}</div>
+                    <div style={{width:44,height:44,borderRadius:"50%",
+                      background:rowColor+"22",border:"2px solid "+rowColor,
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      fontSize:22,flexShrink:0}}>{p.emoji||"🧠"}</div>
                     <div style={{flex:1}}>
                       <div style={{fontSize:15,fontWeight:700}}>{p.name}</div>
-                      <div style={{fontSize:11,color:"var(--sub)"}}>🔥 {p.streak} day streak</div>
+                      <div style={{fontSize:11,color:"var(--sub)"}}>🔥 {p.streak||0} day streak</div>
                     </div>
                     <div style={{textAlign:"right"}}>
-                      <div style={{fontSize:20,fontWeight:800}}>{p.score.toLocaleString()}</div>
-                      <div style={{fontSize:11,fontWeight:600,color:moved>0?"var(--green)":moved<0?"var(--red)":"var(--sub)"}}>{moved>0?"↗ +"+moved:moved<0?"↘ "+moved:"—"}</div>
+                      <div style={{fontSize:20,fontWeight:800}}>{displayScore}</div>
+                      <div style={{fontSize:11,fontWeight:600,
+                        color:moved>0?"var(--green)":moved<0?"var(--red)":"var(--sub)"}}>
+                        {moved>0?"↗ +"+moved:moved<0?"↘ "+moved:"—"}
+                      </div>
                     </div>
                   </div>
                 </Card>
@@ -3968,7 +4012,7 @@ export default function App(){
   else if(tab==="home")     content=<HomeScreen onQuiz={startQuiz} onMock={startMock} onBrowse={subj=>{setBrowseSubject(subj);setFlow("browse");}} onDoubt={()=>setFlow("doubt")} score={score} rank={rank} streak={streak} accuracy={accuracy}/>;
   else if(tab==="duel")     content=<DuelScreen kb={kb} uid={authUser?.uid} userName={authUser?.displayName?.split(" ")[0]||"You"}/>;
   else if(tab==="messages") content=<MessagesScreen/>;
-  else if(tab==="ranks")    content=<RanksScreen currentUid={authUser?.uid}/>;
+  else if(tab==="ranks")    content=<RanksScreen currentUid={authUser?.uid} userStats={userStats}/>;
   else if(tab==="dashboard") content=<DashboardScreen score={score} rank={rank} streak={streak} accuracy={accuracy} userStats={userStats} uid={authUser?.uid} onBack={()=>setTab("home")} referralCount={referralCount}/>;
   else content=<ProfileScreen score={score} rank={rank} streak={streak} accuracy={accuracy} xp={xp} level={level} kb={kb} addQuestion={addQuestion} onFeynman={()=>setFlow("feynman")} userName={authUser?.displayName||"Student"} userEmail={authUser?.email||""} userPhoto={authUser?.photoURL||""} onSignOut={async()=>{await signOutUser();setAuthUser(null);localStorage.removeItem("bb_auth_token");}} onSignIn={()=>setAuthUser(null)} userStats={userStats}/>;
 
