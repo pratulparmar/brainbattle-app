@@ -116,32 +116,25 @@ export async function ensureUserDoc(user) {
 
 /**
  * signInWithGoogle
- * – Desktop: popup (instant UX)
- * – Mobile:  redirect (popup is unreliable on iOS/Android in-app browsers)
- *
- * Returns the Firebase user object on popup success, or null when a redirect
- * has been initiated (page will reload; checkRedirectResult will handle it).
+ * Popup-first for ALL devices — no isMobile check.
+ * Redirect is the root cause of the infinite loop on custom domains because
+ * modern mobile browsers block the cross-origin cookies between neet.rankbattle.in
+ * and brainbattle-neet.firebaseapp.com, so checkRedirectResult() returns null.
+ * Popup works reliably on both desktop and mobile Chrome/Safari.
  */
 export async function signInWithGoogle() {
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-  if (isMobile) {
-    // Set a flag BEFORE the page navigates away so that on reload,
-    // onAuthStateChanged(null) is not mistaken for "logged out".
-    sessionStorage.setItem("rb_redirect_pending", "true");
-    await signInWithRedirect(auth, provider);
-    return null; // page reloads — App.jsx picks up the user via checkRedirectResult
-  }
   try {
     const result = await signInWithPopup(auth, provider);
     return result.user;
   } catch (e) {
-    // Popup blocked on some desktop browsers — fall back to redirect
-    if (e.code === "auth/popup-blocked" || e.code === "auth/popup-closed-by-user") {
+    if (e.code === "auth/popup-blocked") {
+      // Only fall back to redirect if popup was hard-blocked by the browser
       sessionStorage.setItem("rb_redirect_pending", "true");
       await signInWithRedirect(auth, provider);
       return null;
     }
-    throw e; // propagate other errors (e.g. network) so LoginScreen can show the message
+    // auth/popup-closed-by-user = user dismissed — not worth retrying
+    throw e;
   }
 }
 
