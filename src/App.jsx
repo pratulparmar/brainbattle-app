@@ -6,6 +6,16 @@ import { QB, getRandom, getChaptersForSubject, QB_STATS } from "./QB.js";
 /* ══════════════════════════════════════
    SUBJECT META
 ══════════════════════════════════════ */
+/* ── Launch Week Config ─────────────────────────────────────────── */
+const LAUNCH_WEEK_ACTIVE = true;
+const LAUNCH_END_DATE    = new Date("2026-04-10T23:59:59+05:30");
+function getLaunchDaysLeft(){
+  return Math.max(0, Math.ceil((LAUNCH_END_DATE - new Date()) / 86400000));
+}
+function getReferralLink(uid){
+  return "https://neet.rankbattle.in?ref=" + (uid ? uid.slice(0,8) : "share");
+}
+
 const SUBJECT_META = {
   Physics:   { icon:"⚛️", color:"#FF6B6B", bg:"#FFF0F0", exam:"NEET" },
   Chemistry: { icon:"🧪", color:"#FFB347", bg:"#FFF8EE", exam:"NEET" },
@@ -261,248 +271,462 @@ function HomeScreen({onQuiz,onMock,onBrowse,onDoubt,score,rank,streak,accuracy})
 /* ══════════════════════════════════════
    DUEL SCREEN
 ══════════════════════════════════════ */
-function DuelScreen({kb}){
-  const pool=kb&&kb.length>0?kb:QB;
-  const [phase,setPhase]=useState("lobby"); // lobby|countdown|battle|result
-  const [opponent,setOpponent]=useState(null);
-  const [countdown,setCountdown]=useState(3);
-  const [questions,setQuestions]=useState([]);
-  const [qIdx,setQIdx]=useState(0);
-  const [myAnswers,setMyAnswers]=useState({});
-  const [myPts,setMyPts]=useState(0);
-  const [opPts,setOpPts]=useState(0);
-  const [feedback,setFeedback]=useState(null);
-  const [selected,setSelected]=useState(null);
-  const [cardKey,setCardKey]=useState(0);
-  const [timeLeft,setTimeLeft]=useState(15);
-  const [xpToast,setXpToast]=useState(null);
-  const [confetti,setConfetti]=useState(false);
-  const [opProgress,setOpProgress]=useState(0);
 
-  const startDuel=(opp)=>{
-    setOpponent(opp);
-    setPhase("countdown");
-    setCountdown(3);
+/* ══════════════════════════════════════
+   LAUNCH WEEK BANNER
+══════════════════════════════════════ */
+function LaunchBanner({referralCount=0}){
+  const daysLeft = getLaunchDaysLeft();
+  if(!LAUNCH_WEEK_ACTIVE || daysLeft <= 0) return null;
+  const invitesLeft = Math.max(0, 3 - referralCount);
+  return(
+    <div style={{
+      position:"fixed",top:0,left:0,right:0,zIndex:9999,
+      background:"linear-gradient(90deg,#7C3AED,#E91E8C,#FF6B35)",
+      padding:"8px 14px",
+      display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,
+      boxShadow:"0 2px 12px rgba(124,58,237,.4)",
+    }}>
+      <div style={{fontSize:11,color:"#fff",fontWeight:700,lineHeight:1.4}}>
+        {"🔥 "}
+        <strong>{daysLeft} day{daysLeft!==1?"s":""}</strong>
+        {" of Pro Access left"}
+        {invitesLeft > 0 && (
+          <span style={{opacity:.85}}>
+            {" · Rank analysis unlocks after "}
+            <strong>{invitesLeft} more invite{invitesLeft>1?"s":""}</strong>
+          </span>
+        )}
+      </div>
+      <div style={{fontSize:10,color:"rgba(255,255,255,.9)",fontWeight:700,flexShrink:0,
+        background:"rgba(255,255,255,.2)",borderRadius:8,padding:"3px 8px",whiteSpace:"nowrap"}}>
+        NEET 2026 🚀
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════
+   BATTLE CARD — post-game share card
+══════════════════════════════════════ */
+function BattleCard({myPts, opPts, opponent, questions, myAnswers, subject, uid, onRematch, onHome}){
+  const won        = myPts >= opPts;
+  const total      = questions.reduce((s,q)=>s+(q.pts||100),0) || 500;
+  const correct    = Object.values(myAnswers).filter(a=>a.correct).length;
+  const accuracy   = questions.length > 0 ? Math.round((correct/questions.length)*100) : 0;
+  const percentile = Math.min(99, Math.max(1, Math.round(accuracy * 1.35)));
+  const refLink    = getReferralLink(uid);
+  const shareText  = won
+    ? ("I am in the Top "+(100-percentile)+"% of "+((subject)||"NEET")+" aspirants on RankBattle! Scored "+myPts+" pts. Beat me: "+refLink)
+    : ("Just battled on RankBattle — "+accuracy+"% accuracy. Challenge me: "+refLink);
+
+  const handleShare = () => {
+    const waUrl = "https://api.whatsapp.com/send?text="+encodeURIComponent(shareText);
+    if(navigator.share){
+      navigator.share({title:"RankBattle Score",text:shareText,url:refLink})
+        .catch(()=>window.open(waUrl,"_blank"));
+    } else {
+      window.open(waUrl,"_blank");
+    }
   };
 
-  // Countdown timer
-  useEffect(()=>{
-    if(phase!=="countdown") return;
-    if(countdown<=0){ setPhase("battle"); setQuestions([...pool].sort(()=>Math.random()-0.5).slice(0,5)); setQIdx(0); setMyPts(0); setOpPts(0); setMyAnswers({}); setTimeLeft(15); return; }
-    const t=setTimeout(()=>setCountdown(c=>c-1),1000);
-    return()=>clearTimeout(t);
-  },[phase,countdown]);
-
-  // Per-question timer
-  useEffect(()=>{
-    if(phase!=="battle") return;
-    if(timeLeft<=0&&!feedback){ handleSelect(-1); return; }
-    const t=setTimeout(()=>setTimeLeft(v=>v-1),1000);
-    return()=>clearTimeout(t);
-  },[phase,timeLeft,feedback]);
-
-  // Opponent "thinking" progress
-  useEffect(()=>{
-    if(phase!=="battle"||feedback) return;
-    const delay=Math.random()*8000+3000;
-    const t=setTimeout(()=>{
-      const isRight=Math.random()<(opponent?.winRate||50)/100;
-      if(isRight) setOpPts(p=>p+(questions[qIdx]?.pts||100));
-      setOpProgress(p=>p+20);
-    },delay);
-    return()=>clearTimeout(t);
-  },[phase,qIdx,feedback,opponent,questions]);
-
-  const handleSelect=(i)=>{
-    if(feedback) return;
-
-    if(!q) return;
-    const isCorrect=i>=0&&i===q.ans;
-    setSelected(i);
-    setFeedback(isCorrect?"correct":"wrong");
-    const newAns={...myAnswers,[qIdx]:{selected:i,correct:isCorrect,pts:q.pts}};
-    setMyAnswers(newAns);
-    if(isCorrect){setMyPts(p=>p+q.pts);setXpToast(q.pts);setConfetti(true);setTimeout(()=>setConfetti(false),800);}
-    setTimeout(()=>{
-      if(qIdx+1>=questions.length){
-        // Battle done
-        const finalMy=Object.values(newAns).reduce((s,a)=>s+(a.correct?a.pts:0),0);
-        const finalOp=Math.round((opponent.avgScore/100)*questions.reduce((s,q)=>s+q.pts,0)*0.9+Math.random()*100);
-        setMyPts(finalMy); setOpPts(finalOp);
-        setPhase("result");
-        return;
-      }
-      setQIdx(x=>x+1); setSelected(null); setFeedback(null); setCardKey(k=>k+1); setTimeLeft(15); setOpProgress(p=>p+20);
-    },1800);
-  };
-
-  const safeQs = Array.isArray(questions) ? questions.filter(q => q && q.q && q.q.length > 5 && Array.isArray(q.opts) && q.opts.length >= 2) : [];
-  const q = safeQs[qIdx];
-  const labels=["A","B","C","D"];
-
-  if(phase==="lobby") return(
-    <div style={{minHeight:"100vh",paddingBottom:110,position:"relative"}}>
+  return(
+    <div style={{minHeight:"100vh",paddingBottom:110,background:"var(--bg)",position:"relative"}}>
       <BlobBg/>
-      <div style={{position:"relative",zIndex:1,padding:"52px 18px 0"}}>
-        {/* Header */}
-        <div style={{background:"var(--grad)",borderRadius:20,padding:"22px 20px",marginBottom:24,textAlign:"center",boxShadow:"0 6px 28px rgba(233,30,140,.3)"}}>
-          <div style={{fontSize:36,marginBottom:4}}>⚔️</div>
-          <div style={{fontSize:22,fontWeight:800,color:"#fff"}}>Duel Arena</div>
-          <div style={{fontSize:13,color:"rgba(255,255,255,.8)"}}>Challenge a rival. Win, rank up, earn points!</div>
+      <div style={{position:"relative",zIndex:1,padding:"60px 18px 0"}}>
+
+        {/* Result banner */}
+        <div style={{
+          borderRadius:28,padding:"28px 20px",marginBottom:16,textAlign:"center",
+          background:won?"linear-gradient(135deg,#F0FDF4,#DCFCE7)":"linear-gradient(135deg,#FFF5F5,#FEE2E2)",
+          border:"2px solid "+(won?"var(--green)":"var(--red)"),
+          boxShadow:won?"0 8px 32px rgba(34,197,94,.2)":"0 8px 32px rgba(239,68,68,.12)",
+          animation:"scaleIn .4s ease",
+        }}>
+          <div style={{fontSize:64,marginBottom:4}}>{won?"🏆":"😤"}</div>
+          <div style={{fontSize:28,fontWeight:900,color:won?"var(--green)":"var(--red)",marginBottom:4}}>
+            {won?"Victory!":"Keep Training"}
+          </div>
+          <div style={{fontSize:13,color:"var(--sub)",fontWeight:600}}>
+            {won
+              ? ("You crushed "+(opponent?.name||"Rival")+" by "+(myPts-opPts)+" pts 🎯")
+              : ((opponent?.name||"Rival")+" beat you by "+(opPts-myPts)+" pts — rematch?")}
+          </div>
         </div>
-        <div style={{fontSize:18,fontWeight:800,marginBottom:14}}>Choose your opponent</div>
-        {OPPONENTS.map((opp,i)=>(
-          <Card key={i} style={{padding:"14px 16px",marginBottom:12,animation:`fadeUp .3s ${i*.06}s ease both`}}>
-            <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <div style={{position:"relative"}}>
-                <div style={{width:50,height:50,borderRadius:"50%",background:opp.color+"22",border:"2px solid "+opp.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>{opp.emoji}</div>
-                <div style={{position:"absolute",bottom:1,right:1,width:12,height:12,borderRadius:"50%",background:"#22C55E",border:"2px solid #fff"}}/>
-              </div>
-              <div style={{flex:1}}>
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <div style={{fontSize:15,fontWeight:700}}>{opp.name}</div>
-                  <span style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:opp.color+"18",color:opp.color,fontWeight:700}}>Rank #{opp.rank}</span>
-                </div>
-                <div style={{fontSize:11,color:"var(--sub)",marginTop:2}}>{opp.tag} · {opp.streak}🔥 streak · {opp.winRate}% win rate</div>
-                <div style={{display:"flex",gap:4,marginTop:4}}>
-                  {opp.topics.slice(0,2).map(t=><span key={t} style={{fontSize:9,padding:"2px 6px",borderRadius:8,background:"#F0F0F0",color:"var(--sub)",fontWeight:600}}>{t}</span>)}
-                </div>
-              </div>
-              <button onClick={()=>startDuel(opp)} style={{padding:"8px 14px",background:"var(--grad)",border:"none",borderRadius:10,color:"#fff",fontWeight:700,fontSize:12,flexShrink:0,boxShadow:"0 3px 12px rgba(233,30,140,.3)"}}>Duel ⚔️</button>
+
+        {/* Stats grid */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+          {[
+            {label:"Your Score",  val:myPts,                color:"var(--orange)", icon:"⚡"},
+            {label:"Rival Score", val:opPts,                color:opponent?.color||"#7C3AED", icon:opponent?.emoji||"🤖"},
+            {label:"Accuracy",    val:accuracy+"%",          color:"#667EEA",       icon:"🎯"},
+            {label:"Percentile",  val:"Top "+(100-percentile)+"%", color:"#7C3AED", icon:"📊"},
+          ].map((s,i)=>(
+            <div key={i} style={{background:"#fff",borderRadius:20,padding:"14px",
+              boxShadow:"0 4px 12px rgba(0,0,0,.06)",border:"1px solid #F0EBE0",textAlign:"center"}}>
+              <div style={{fontSize:22,marginBottom:4}}>{s.icon}</div>
+              <div style={{fontSize:20,fontWeight:900,color:s.color}}>{s.val}</div>
+              <div style={{fontSize:10,color:"var(--sub)",fontWeight:700,marginTop:2,
+                textTransform:"uppercase",letterSpacing:.5}}>{s.label}</div>
             </div>
-          </Card>
-        ))}
+          ))}
+        </div>
+
+        {/* WhatsApp share card */}
+        <div style={{
+          background:"linear-gradient(135deg,#667EEA,#764BA2)",
+          borderRadius:24,padding:"18px",marginBottom:14,
+          boxShadow:"0 8px 24px rgba(102,126,234,.35)",
+        }}>
+          <div style={{fontSize:14,fontWeight:800,color:"#fff",marginBottom:6}}>
+            📣 Challenge your friends!
+          </div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,.8)",marginBottom:14,lineHeight:1.5,
+            background:"rgba(0,0,0,.15)",borderRadius:10,padding:"10px 12px",fontStyle:"italic"}}>
+            "{shareText.slice(0,100)}..."
+          </div>
+          <button onClick={handleShare} style={{
+            width:"100%",padding:"13px",
+            background:"#25D366",border:"none",borderRadius:14,
+            color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer",
+            display:"flex",alignItems:"center",justifyContent:"center",gap:10,
+            boxShadow:"0 4px 16px rgba(37,211,102,.4)",
+          }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff">
+              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+              <path d="M11.999 2C6.477 2 2 6.477 2 12c0 1.89.525 3.659 1.438 5.168L2 22l4.978-1.304A9.96 9.96 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2z"/>
+            </svg>
+            Share to WhatsApp
+          </button>
+        </div>
+
+        {/* Referral nudge */}
+        <div style={{
+          background:"#FFF9E6",border:"1px solid #FDE68A",borderRadius:18,
+          padding:"14px 16px",marginBottom:16,
+          display:"flex",alignItems:"center",gap:12,
+        }}>
+          <div style={{fontSize:28}}>🔗</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:800,color:"#92400E"}}>
+              Invite 3 friends → Unlock Rank Predictor
+            </div>
+            <div style={{fontSize:10,color:"#B45309",marginTop:2,wordBreak:"break-all"}}>{refLink}</div>
+          </div>
+        </div>
+
+        <div style={{display:"flex",gap:10}}>
+          <GradBtn onClick={onRematch} style={{flex:1}}>⚔️ Rematch</GradBtn>
+          <GradBtn onClick={onHome} outlined style={{flex:1}}>🏠 Home</GradBtn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DuelScreen({kb, uid, userName}){
+  const pool = (kb && kb.length > 0 ? kb : QB).filter(q => q && q.q && Array.isArray(q.opts) && q.opts.length >= 2);
+  const [phase, setPhase]       = useState("matchmaking"); // matchmaking|countdown|battle|result
+  const [opponent, setOpponent] = useState(null);
+  const [isGhost, setIsGhost]   = useState(false);
+  const [matchTimer, setMatchTimer] = useState(10);
+  const [countdown, setCountdown]   = useState(3);
+  const [questions, setQuestions]   = useState([]);
+  const [qIdx, setQIdx]             = useState(0);
+  const [myAnswers, setMyAnswers]   = useState({});
+  const [myPts, setMyPts]           = useState(0);
+  const [opPts, setOpPts]           = useState(0);
+  const [opScore, setOpScore]       = useState(0); // running ghost score
+  const [feedback, setFeedback]     = useState(null);
+  const [selected, setSelected]     = useState(null);
+  const [cardKey, setCardKey]       = useState(0);
+  const [timeLeft, setTimeLeft]     = useState(120); // global 120s battle timer
+  const [qTime, setQTime]           = useState(Date.now()); // per-question start time
+  const [xpToast, setXpToast]       = useState(null);
+  const [confetti, setConfetti]     = useState(false);
+  const labels = ["A","B","C","D"];
+  const MAX_PTS = questions.reduce((s,q)=>s+(q.pts||100),0)||500;
+
+  // ── Matchmaking: 10s search then ghost fallback ──
+  useEffect(()=>{
+    if(phase !== "matchmaking") return;
+    if(matchTimer <= 0){
+      const ghost = GHOST_OPPONENTS[Math.floor(Math.random()*GHOST_OPPONENTS.length)];
+      setOpponent(ghost); setIsGhost(true); setPhase("countdown"); setCountdown(3); return;
+    }
+    const t = setTimeout(()=>setMatchTimer(v=>v-1), 1000);
+    return ()=>clearTimeout(t);
+  },[phase, matchTimer]);
+
+  // ── Countdown ──
+  useEffect(()=>{
+    if(phase !== "countdown") return;
+    if(countdown <= 0){
+      const qs = [...pool].sort(()=>Math.random()-0.5).slice(0,8);
+      setQuestions(qs); setPhase("battle");
+      setQIdx(0); setMyPts(0); setOpPts(0); setOpScore(0);
+      setMyAnswers({}); setTimeLeft(120); setQTime(Date.now()); return;
+    }
+    const t = setTimeout(()=>setCountdown(c=>c-1), 1000);
+    return ()=>clearTimeout(t);
+  },[phase, countdown]);
+
+  // ── Global 120s battle timer ──
+  useEffect(()=>{
+    if(phase !== "battle") return;
+    if(timeLeft <= 0){ finalizeBattle(myAnswers, myPts); return; }
+    const t = setTimeout(()=>setTimeLeft(v=>v-1), 1000);
+    return ()=>clearTimeout(t);
+  },[phase, timeLeft]);
+
+  // ── Ghost opponent advances score realistically ──
+  useEffect(()=>{
+    if(phase !== "battle" || !isGhost || feedback) return;
+    const delay = 1500 + Math.random()*5000;
+    const t = setTimeout(()=>{
+      const isRight = Math.random() < (opponent?.winRate||60)/100;
+      if(isRight){ const gainPts = questions[qIdx]?.pts||100; setOpPts(p=>p+gainPts); setOpScore(p=>p+gainPts); }
+    }, delay);
+    return ()=>clearTimeout(t);
+  },[phase, qIdx, isGhost, feedback, opponent, questions]);
+
+  const finalizeBattle = (answers, finalMyPts) => {
+    const finalOp = isGhost
+      ? Math.round((opponent.avgScore/100)*MAX_PTS * (0.75 + Math.random()*0.3))
+      : opPts;
+    setMyPts(finalMyPts); setOpPts(finalOp); setPhase("result");
+    // Credit referral if this is the user's first battle
+    if(uid){
+      import("./firebase_utils").then(({processReferral})=>{
+        processReferral(uid).catch(()=>{});
+      });
+    }
+  };
+
+  const handleSelect = (i) => {
+    if(feedback) return;
+    const q = questions[qIdx];
+    if(!q) return;
+    const timeTaken = (Date.now() - qTime) / 1000;
+    const isCorrect = i >= 0 && i === q.ans;
+    setSelected(i); setFeedback(isCorrect ? "correct" : "wrong");
+    // Speed bonus: faster correct answers worth more (max 30% bonus)
+    const speedBonus  = isCorrect ? Math.max(0, Math.round((q.pts||100) * 0.3 * (1 - timeTaken/20))) : 0;
+    const earnedPts   = isCorrect ? (q.pts||100) + speedBonus : 0;
+    const newAns      = {...myAnswers, [qIdx]:{selected:i, correct:isCorrect, pts:earnedPts}};
+    setMyAnswers(newAns);
+    if(isCorrect){ setMyPts(p=>p+earnedPts); setXpToast(earnedPts); setConfetti(true); setTimeout(()=>setConfetti(false),800); }
+    setTimeout(()=>{
+      const nextIdx = qIdx + 1;
+      if(nextIdx >= questions.length){ finalizeBattle(newAns, Object.values(newAns).reduce((s,a)=>s+a.pts,0)); return; }
+      setQIdx(nextIdx); setSelected(null); setFeedback(null); setCardKey(k=>k+1); setQTime(Date.now());
+    }, 1600);
+  };
+
+  const q = questions[qIdx];
+  const myPct   = MAX_PTS > 0 ? Math.min(100,(myPts/MAX_PTS)*100) : 0;
+  const opPct   = MAX_PTS > 0 ? Math.min(100,(opPts/MAX_PTS)*100) : 0;
+  const fmtTime = s => Math.floor(s/60)+":"+String(s%60).padStart(2,"0");
+
+  // ── MATCHMAKING screen ──
+  if(phase === "matchmaking") return(
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",
+      justifyContent:"center",background:"var(--bg)",position:"relative",padding:24}}>
+      <BlobBg/>
+      <div style={{position:"relative",zIndex:1,textAlign:"center"}}>
+        <div style={{fontSize:64,animation:"spinOnce 2s linear infinite",marginBottom:16}}>⚔️</div>
+        <div style={{fontSize:22,fontWeight:900,color:"var(--tx)",marginBottom:6}}>Finding Rival…</div>
+        <div style={{fontSize:14,color:"var(--sub)",marginBottom:24}}>
+          Searching for a live opponent
+        </div>
+        <div style={{width:80,height:80,borderRadius:"50%",
+          border:"6px solid #F0EBE0",borderTopColor:"var(--pink)",
+          animation:"spinOnce .8s linear infinite",margin:"0 auto 20px"}}/>
+        <div style={{fontSize:32,fontWeight:900,color:"var(--pink)"}}>{matchTimer}s</div>
+        <div style={{fontSize:12,color:"var(--sub)",marginTop:8}}>
+          {matchTimer <= 3 ? "No live rival found — starting Ghost Battle 👻" : "Matching with a live opponent…"}
+        </div>
+        <div style={{marginTop:24,padding:"10px 16px",background:"#FFF9E6",borderRadius:14,
+          border:"1px solid #FDE68A",maxWidth:280}}>
+          <div style={{fontSize:12,color:"#92400E",fontWeight:600}}>
+            👻 <strong>Ghost Battle:</strong> compete against a recorded high-score from our top players
+          </div>
+        </div>
       </div>
     </div>
   );
 
-  if(phase==="countdown") return(
-    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"var(--bg)",position:"relative"}}>
+  // ── COUNTDOWN ──
+  if(phase === "countdown") return(
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",
+      justifyContent:"center",background:"var(--bg)",position:"relative"}}>
       <BlobBg/>
       <div style={{position:"relative",zIndex:1,textAlign:"center",padding:24}}>
-        <div style={{display:"flex",justifyContent:"center",gap:32,marginBottom:40}}>
+        {isGhost && (
+          <div style={{background:"#FFF9E6",border:"1px solid #FDE68A",borderRadius:12,
+            padding:"8px 16px",marginBottom:20,fontSize:12,color:"#92400E",fontWeight:700}}>
+            👻 Ghost Battle — competing vs {opponent?.name}'s recorded performance
+          </div>
+        )}
+        <div style={{display:"flex",justifyContent:"center",gap:32,marginBottom:32}}>
           <div style={{textAlign:"center"}}>
-            <div style={{width:70,height:70,borderRadius:"50%",background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,margin:"0 auto 8px",boxShadow:"0 4px 20px rgba(233,30,140,.3)"}}>🎯</div>
-            <div style={{fontWeight:700,fontSize:14}}>You</div>
+            <div style={{width:70,height:70,borderRadius:"50%",background:"var(--grad)",
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,
+              margin:"0 auto 8px",boxShadow:"0 4px 20px rgba(233,30,140,.3)"}}>🎯</div>
+            <div style={{fontWeight:700,fontSize:13}}>{userName||"You"}</div>
           </div>
           <div style={{display:"flex",alignItems:"center",fontSize:28,fontWeight:900,color:"var(--orange)"}}>VS</div>
           <div style={{textAlign:"center"}}>
-            <div style={{width:70,height:70,borderRadius:"50%",background:opponent.color+"22",border:"3px solid "+opponent.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,margin:"0 auto 8px"}}>{opponent.emoji}</div>
-            <div style={{fontWeight:700,fontSize:14}}>{opponent.name}</div>
+            <div style={{width:70,height:70,borderRadius:"50%",
+              background:(opponent?.color||"#7C3AED")+"22",
+              border:"3px solid "+(opponent?.color||"#7C3AED"),
+              display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:32,margin:"0 auto 8px"}}>{opponent?.emoji||"🤖"}</div>
+            <div style={{fontWeight:700,fontSize:13}}>{opponent?.name||"Ghost"}</div>
           </div>
         </div>
-        <div style={{fontSize:100,fontWeight:900,lineHeight:1,color:"var(--orange)",animation:"popIn .4s ease"}}>{countdown===0?"GO!":countdown}</div>
-        <div style={{fontSize:15,color:"var(--sub)",marginTop:16,fontWeight:500}}>5 questions · 15 seconds each</div>
+        <div style={{fontSize:100,fontWeight:900,lineHeight:1,color:"var(--orange)",animation:"popIn .4s ease"}}>
+          {countdown===0?"GO!":countdown}
+        </div>
+        <div style={{fontSize:13,color:"var(--sub)",marginTop:12}}>8 questions · 120 seconds · Speed matters</div>
       </div>
     </div>
   );
 
-  if(phase==="battle"&&q) return(
+  // ── BATTLE ──
+  if(phase === "battle" && q) return(
     <div style={{minHeight:"100vh",position:"relative"}}>
       {xpToast&&<XPToast pts={xpToast} onDone={()=>setXpToast(null)}/>}
       <Confetti show={confetti}/>
       <BlobBg/>
-      <div style={{position:"relative",zIndex:1,padding:"52px 18px 24px"}}>
-        {/* VS score bar */}
+      <div style={{position:"relative",zIndex:1,padding:"60px 18px 24px"}}>
+
+        {/* Dual progress + timer bar */}
         <Card style={{padding:"12px 16px",marginBottom:14}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
             <div style={{textAlign:"center"}}>
-              <div style={{fontSize:10,color:"var(--sub)",fontWeight:600}}>YOU</div>
-              <div style={{fontSize:22,fontWeight:900,color:"var(--orange)"}}>{myPts}</div>
+              <div style={{fontSize:9,color:"var(--sub)",fontWeight:700,textTransform:"uppercase"}}>You</div>
+              <div style={{fontSize:20,fontWeight:900,color:"var(--orange)"}}>{myPts}</div>
             </div>
-            <div style={{flex:1,margin:"0 12px"}}>
-              <div style={{height:8,background:"#F0F0F0",borderRadius:4,overflow:"hidden",marginBottom:4}}>
-                <div style={{height:"100%",background:"var(--grad)",borderRadius:4,transition:"width .5s ease",width:Math.min(100,(myPts/750)*100)+"%"}}/>
+            <div style={{flex:1,margin:"0 10px"}}>
+              {/* My bar */}
+              <div style={{height:7,background:"#F0F0F0",borderRadius:4,overflow:"hidden",marginBottom:4}}>
+                <div style={{height:"100%",background:"var(--grad)",borderRadius:4,
+                  width:myPct+"%",transition:"width .5s ease"}}/>
               </div>
-              <div style={{height:8,background:"#F0F0F0",borderRadius:4,overflow:"hidden"}}>
-                <div style={{height:"100%",background:opponent.color,borderRadius:4,transition:"width .5s ease",width:Math.min(100,opProgress)+"%"}}/>
+              {/* Opponent bar */}
+              <div style={{height:7,background:"#F0F0F0",borderRadius:4,overflow:"hidden"}}>
+                <div style={{height:"100%",background:opponent?.color||"#7C3AED",borderRadius:4,
+                  width:opPct+"%",transition:"width .5s ease"}}/>
               </div>
             </div>
             <div style={{textAlign:"center"}}>
-              <div style={{fontSize:10,color:"var(--sub)",fontWeight:600}}>{opponent.name.split(" ")[0].toUpperCase()}</div>
-              <div style={{fontSize:22,fontWeight:900,color:opponent.color}}>{opPts}</div>
+              <div style={{fontSize:9,color:"var(--sub)",fontWeight:700,textTransform:"uppercase"}}>
+                {isGhost?"👻":""}{opponent?.name?.split(" ")[0]||"Rival"}
+              </div>
+              <div style={{fontSize:20,fontWeight:900,color:opponent?.color||"#7C3AED"}}>{opPts}</div>
             </div>
           </div>
+
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{display:"flex",gap:3}}>
-              {questions.map((_,i)=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:myAnswers[i]?myAnswers[i].correct?"var(--green)":"var(--red)":i===qIdx?"var(--orange)":"#E0E0E0"}}/>)}
+              {questions.map((_,i)=><div key={i} style={{width:6,height:6,borderRadius:"50%",
+                background:myAnswers[i]?myAnswers[i].correct?"var(--green)":"var(--red)":
+                i===qIdx?"var(--orange)":"#E0E0E0"}}/>)}
             </div>
-            <div style={{fontWeight:700,fontSize:13,color:timeLeft<5?"var(--red)":"var(--sub)",animation:timeLeft<5?"timerW .6s ease infinite":"none"}}>⏱ {timeLeft}s</div>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <div style={{fontSize:11,fontWeight:700,
+                color:timeLeft<20?"var(--red)":"var(--sub)",
+                animation:timeLeft<20?"timerW .6s ease infinite":"none"}}>
+                ⏱ {fmtTime(timeLeft)}
+              </div>
+              <div style={{fontSize:10,color:"var(--sub2)"}}>Q{qIdx+1}/{questions.length}</div>
+            </div>
           </div>
         </Card>
 
+        {/* Question — no Back button */}
         <div key={cardKey} style={{animation:"cardPop .3s ease"}}>
-          <Card style={{padding:"20px 18px",marginBottom:12,border:"2px solid "+(feedback==="correct"?"var(--green)":feedback==="wrong"?"var(--red)":"transparent"),transition:"border-color .2s",animation:feedback==="wrong"?"shake .4s ease":"none"}}>
-            <div style={{display:"inline-block",padding:"4px 14px",borderRadius:20,background:"var(--cyan)",color:"#fff",fontWeight:700,fontSize:11,marginBottom:12}}>{q.tag}</div>
-            <div style={{fontSize:17,fontWeight:700,lineHeight:1.5}}>{q.q}</div>
+          <Card style={{padding:"18px 16px",marginBottom:12,
+            border:"2px solid "+(feedback==="correct"?"var(--green)":feedback==="wrong"?"var(--red)":"transparent"),
+            transition:"border-color .2s",animation:feedback==="wrong"?"shake .4s ease":"none"}}>
+            <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
+              <div style={{display:"inline-block",padding:"3px 12px",borderRadius:20,
+                background:"var(--cyan)",color:"#fff",fontWeight:700,fontSize:10}}>{q.tag}</div>
+              {q.diff==="hard"&&<div style={{padding:"3px 8px",borderRadius:20,
+                background:"#FFF5F5",color:"var(--red)",fontWeight:700,fontSize:9}}>🔥 Hard</div>}
+            </div>
+            <div style={{fontSize:15,fontWeight:700,lineHeight:1.5,color:"var(--tx)"}}>{q.q}</div>
           </Card>
-          <div style={{display:"flex",flexDirection:"column",gap:9,marginBottom:12}}>
+
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
             {q.opts.map((opt,i)=>{
-              const isC=i===q.ans,isWS=i===selected&&!isC;
+              const isC=i===q.ans, isWS=i===selected&&!isC;
               let bg="#fff",border="#EBEBEB",lBg="#F5F5F5",lC="var(--sub)",tC="var(--tx)";
-              if(feedback){if(isC){bg="#F0FDF4";border="var(--green)";lBg="var(--green)";lC="#fff";tC="var(--green)";}if(isWS){bg="#FFF5F5";border="var(--red)";lBg="var(--red)";lC="#fff";tC="var(--red)";}}
+              if(feedback){if(isC){bg="#F0FDF4";border="var(--green)";lBg="var(--green)";lC="#fff";tC="var(--green)";}
+                if(isWS){bg="#FFF5F5";border="var(--red)";lBg="var(--red)";lC="#fff";tC="var(--red)";}}
               else if(selected===i){bg="#FFF0E8";border="var(--orange)";lBg="var(--orange)";lC="#fff";}
               return(
-                <button key={i} onClick={()=>handleSelect(i)} disabled={!!feedback} style={{width:"100%",padding:"12px 14px",background:bg,border:"1.5px solid "+border,borderRadius:14,display:"flex",alignItems:"center",gap:11,textAlign:"left",transition:"all .2s",boxShadow:"0 1px 6px rgba(0,0,0,.05)"}}>
-                  <div style={{width:30,height:30,borderRadius:8,flexShrink:0,background:lBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:lC}}>{feedback&&isC?"✓":feedback&&isWS?"✗":labels[i]}</div>
-                  <span style={{fontSize:14,color:tC,lineHeight:1.4,fontWeight:500}}>{opt}</span>
+                <button key={i} onClick={()=>handleSelect(i)} disabled={!!feedback}
+                  style={{width:"100%",padding:"11px 13px",background:bg,border:"1.5px solid "+border,
+                    borderRadius:13,display:"flex",alignItems:"center",gap:10,textAlign:"left",
+                    transition:"all .15s",boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
+                  <div style={{width:28,height:28,borderRadius:7,flexShrink:0,background:lBg,
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    fontSize:11,fontWeight:700,color:lC}}>
+                    {feedback&&isC?"✓":feedback&&isWS?"✗":labels[i]}
+                  </div>
+                  <span style={{fontSize:13,color:tC,lineHeight:1.4,fontWeight:500}}>{opt}</span>
                 </button>
               );
             })}
           </div>
-          {feedback&&(
-            <Card style={{padding:"12px 14px",background:feedback==="correct"?"#F0FDF4":"#FFF9F0",border:"1.5px solid "+(feedback==="correct"?"var(--green)":"var(--amber)"),animation:"fadeUp .3s ease"}}>
+
+          {feedback && (
+            <Card style={{padding:"11px 13px",
+              background:feedback==="correct"?"#F0FDF4":"#FFF9F0",
+              border:"1.5px solid "+(feedback==="correct"?"var(--green)":"var(--amber)"),
+              animation:"fadeUp .3s ease"}}>
               <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                <span style={{fontSize:22,flexShrink:0}}>{feedback==="correct"?"🎯":"💡"}</span>
-                <div><div style={{fontSize:11,fontWeight:700,color:feedback==="correct"?"var(--green)":"var(--amber)",marginBottom:3}}>{feedback==="correct"?"CORRECT! +"+q.pts+" pts":"EXPLANATION"}</div><div style={{fontSize:12,color:"var(--tx)",lineHeight:1.5}}>{q.exp}</div></div>
+                <span style={{fontSize:20,flexShrink:0}}>{feedback==="correct"?"🎯":"💡"}</span>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,
+                    color:feedback==="correct"?"var(--green)":"var(--amber)",marginBottom:2}}>
+                    {feedback==="correct"?"CORRECT! +"+Object.values(myAnswers).slice(-1)[0]?.pts+" pts":"EXPLANATION"}
+                  </div>
+                  <div style={{fontSize:12,color:"var(--tx)",lineHeight:1.5}}>{q.exp}</div>
+                </div>
               </div>
             </Card>
+          )}
+          {!feedback && (
+            <div style={{textAlign:"center",fontSize:11,color:"var(--sub2)",marginTop:6}}>
+              ⚡ Tap fast — speed bonus applies!
+            </div>
           )}
         </div>
       </div>
     </div>
   );
 
-  if(phase==="result"){
-    const won=myPts>opPts;
-    const diff=Math.abs(myPts-opPts);
-    return(
-      <div style={{minHeight:"100vh",paddingBottom:110,position:"relative"}}>
-        <Confetti show={won}/>
-        <BlobBg/>
-        <div style={{position:"relative",zIndex:1,padding:"52px 18px 0"}}>
-          {/* Result banner */}
-          <Card style={{padding:"28px 20px",marginBottom:16,textAlign:"center",background:won?"linear-gradient(135deg,#F0FDF4,#DCFCE7)":"linear-gradient(135deg,#FFF5F5,#FEE2E2)",border:"2px solid "+(won?"var(--green)":"var(--red)")}}>
-            <div style={{fontSize:56,marginBottom:8}}>{won?"🏆":"😤"}</div>
-            <div style={{fontSize:26,fontWeight:900,color:won?"var(--green)":"var(--red)"}}>{won?"Victory!":"Defeated"}</div>
-            <div style={{fontSize:14,color:"var(--sub)",marginTop:4}}>{won?`You won by ${diff} points!`:`Lost by ${diff} points. Train harder!`}</div>
-          </Card>
-          {/* Score comparison */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
-            {[{label:"You",pts:myPts,color:"var(--orange)",emoji:"🎯"},{label:opponent.name,pts:opPts,color:opponent.color,emoji:opponent.emoji}].map((p,i)=>(
-              <Card key={i} style={{padding:"16px",textAlign:"center",border:"2px solid "+(i===0&&won||i===1&&!won?"var(--green)":"var(--border)")}}>
-                <div style={{fontSize:28,marginBottom:4}}>{p.emoji}</div>
-                <div style={{fontSize:11,color:"var(--sub)",fontWeight:600,marginBottom:4}}>{p.label}</div>
-                <div style={{fontSize:28,fontWeight:900,color:p.color}}>{p.pts}</div>
-                <div style={{fontSize:11,color:"var(--sub)"}}>points</div>
-                {((i===0&&won)||(i===1&&!won))&&<div style={{marginTop:6,fontSize:11,fontWeight:700,color:"var(--green)"}}>👑 Winner</div>}
-              </Card>
-            ))}
-          </div>
-          {won&&<Card style={{padding:"14px 16px",marginBottom:16,background:"linear-gradient(135deg,#FFF3E0,#FFE4F3)",border:"1.5px solid #FFD0B0",textAlign:"center"}}>
-            <div style={{fontSize:20,fontWeight:800,color:"var(--orange)"}}>+{won?150:50} pts · {won?"↑ Rank up! ":"↓ Keep training "}{won?"🚀":"💪"}</div>
-          </Card>}
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            <GradBtn onClick={()=>{setPhase("lobby");setOpponent(null);}} style={{width:"100%"}}>⚔️ Challenge Again</GradBtn>
-            <GradBtn onClick={()=>{setPhase("lobby");setOpponent(null);}} outlined style={{width:"100%"}}>🏠 Back to Lobby</GradBtn>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // ── RESULT → BattleCard ──
+  if(phase === "result") return(
+    <BattleCard
+      myPts={myPts} opPts={opPts} opponent={opponent}
+      questions={questions} myAnswers={myAnswers}
+      subject={questions[0]?.subject||"NEET"}
+      uid={uid}
+      onRematch={()=>{
+        setPhase("matchmaking"); setMatchTimer(10); setOpponent(null);
+        setIsGhost(false); setQuestions([]); setQIdx(0);
+        setMyAnswers({}); setMyPts(0); setOpPts(0); setSelected(null); setFeedback(null);
+      }}
+      onHome={()=>{ setPhase("matchmaking"); setMatchTimer(10); }}
+    />
+  );
+
   return null;
 }
-
 /* ══════════════════════════════════════
    MESSAGES SCREEN
 ══════════════════════════════════════ */
@@ -908,14 +1132,60 @@ function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFey
           </div>
         </Card>
 
-        {/* Upgrade Button */}
-        <div onClick={()=>setShowPaywallProfile(true)} style={{background:"linear-gradient(135deg,#667EEA,#764BA2)",borderRadius:20,padding:"16px 18px",marginBottom:12,cursor:"pointer",display:"flex",alignItems:"center",gap:14,boxShadow:"0 6px 20px rgba(102,126,234,.35)"}}>
-          <div style={{fontSize:32}}>⚡</div>
-          <div style={{flex:1}}>
-            <div style={{fontSize:15,fontWeight:900,color:"#fff"}}>Upgrade to Pro</div>
-            <div style={{fontSize:12,color:"rgba(255,255,255,.8)",marginTop:2}}>Unlimited Dr. Neuron · Full Analytics</div>
+        {/* Launch Week / Pro Banner */}
+        {LAUNCH_WEEK_ACTIVE ? (
+          <div style={{background:"linear-gradient(135deg,#667EEA,#764BA2)",borderRadius:20,
+            padding:"16px 18px",marginBottom:12,display:"flex",alignItems:"center",gap:14,
+            boxShadow:"0 6px 20px rgba(102,126,234,.35)"}}>
+            <div style={{fontSize:32}}>🔥</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:14,fontWeight:900,color:"#FFD166"}}>Pro — UNLOCKED 🎉</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,.85)",marginTop:2}}>
+                Unlocked: NEET 2026 Special Launch Week · {getLaunchDaysLeft()} days remaining
+              </div>
+            </div>
+            <div style={{background:"rgba(255,255,255,.2)",borderRadius:10,padding:"4px 8px"}}>
+              <div style={{fontSize:9,color:"#fff",fontWeight:700}}>FREE</div>
+            </div>
           </div>
-          <div style={{fontSize:20,color:"rgba(255,255,255,.8)"}}>›</div>
+        ) : (
+          <div onClick={()=>setShowPaywallProfile(true)} style={{background:"linear-gradient(135deg,#667EEA,#764BA2)",borderRadius:20,
+            padding:"16px 18px",marginBottom:12,cursor:"pointer",display:"flex",alignItems:"center",gap:14,
+            boxShadow:"0 6px 20px rgba(102,126,234,.35)"}}>
+            <div style={{fontSize:32}}>⚡</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:15,fontWeight:900,color:"#fff"}}>Upgrade to Pro</div>
+              <div style={{fontSize:12,color:"rgba(255,255,255,.8)",marginTop:2}}>Unlimited Dr. Neuron · Full Analytics</div>
+            </div>
+            <div style={{fontSize:20,color:"rgba(255,255,255,.8)"}}>›</div>
+          </div>
+        )}
+
+        {/* Referral Link Card */}
+        <div style={{background:"linear-gradient(135deg,#FFF9E6,#FFFDE7)",borderRadius:20,
+          padding:"16px 18px",marginBottom:12,border:"1.5px solid #FDE68A",
+          boxShadow:"0 4px 12px rgba(251,191,36,.2)"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+            <div style={{fontSize:28}}>🔗</div>
+            <div>
+              <div style={{fontSize:14,fontWeight:800,color:"#92400E"}}>Invite Friends → Unlock Analysis</div>
+              <div style={{fontSize:11,color:"#B45309"}}>3 invites unlock Rank Predictor + Heatmap</div>
+            </div>
+          </div>
+          <div style={{background:"rgba(255,255,255,.8)",borderRadius:10,padding:"8px 12px",
+            fontSize:11,color:"#92400E",fontWeight:600,wordBreak:"break-all",marginBottom:10}}>
+            {getReferralLink(userEmail)}
+          </div>
+          <button onClick={()=>{
+            const link = getReferralLink(userEmail);
+            const txt = "Join me on RankBattle — the fastest way to crack NEET 2026! Use my invite link: "+link;
+            if(navigator.share){ navigator.share({title:"RankBattle",text:txt,url:link}).catch(()=>{}); }
+            else { window.open("https://api.whatsapp.com/send?text="+encodeURIComponent(txt),"_blank"); }
+          }} style={{width:"100%",padding:"10px",background:"#25D366",border:"none",borderRadius:12,
+            color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer",
+            display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            <span>📲</span> Share Invite on WhatsApp
+          </button>
         </div>
 
         {/* Knowledge Base card */}
@@ -2350,7 +2620,7 @@ function ChapterSelectScreen({subject, onChapter, onBack}) {
 /* ══════════════════════════════════════
    DASHBOARD SCREEN
 ══════════════════════════════════════ */
-function DashboardScreen({score,rank,streak,accuracy,userStats,uid,onBack}){
+function DashboardScreen({score,rank,streak,accuracy,userStats,uid,onBack,referralCount=0}){
   const [analytics,setAnalytics]=useState(null);
   const [loading,setLoading]=useState(true);
 
@@ -2417,9 +2687,18 @@ function DashboardScreen({score,rank,streak,accuracy,userStats,uid,onBack}){
               <div style={{fontSize:10,color:"#9CA3AF",fontWeight:700,textTransform:"uppercase"}}>Study Hours</div>
               <div style={{fontSize:24,fontWeight:900,color:"#FF6B6B",marginTop:2}}>{data.total_study_hours}h</div>
             </div>
-            <div style={{background:"#fff",borderRadius:18,padding:"12px 14px",boxShadow:"0 4px 12px rgba(0,0,0,.06)",flex:1}}>
-              <div style={{fontSize:10,color:"#9CA3AF",fontWeight:700,textTransform:"uppercase"}}>Global Rank</div>
-              <div style={{fontSize:24,fontWeight:900,color:"#667EEA",marginTop:2}}>#{rank}</div>
+            <div style={{background:"#fff",borderRadius:18,padding:"12px 14px",boxShadow:"0 4px 12px rgba(0,0,0,.06)",flex:1,position:"relative",overflow:"hidden"}}>
+              <div style={{fontSize:10,color:"#9CA3AF",fontWeight:700,textTransform:"uppercase"}}>Predicted Rank</div>
+              {referralCount >= 3
+                ? <div style={{fontSize:24,fontWeight:900,color:"#667EEA",marginTop:2}}>#{rank}</div>
+                : <div style={{position:"relative"}}>
+                    <div style={{fontSize:24,fontWeight:900,color:"#667EEA",marginTop:2,filter:"blur(6px)",userSelect:"none"}}>#{Math.floor(Math.random()*5000+1000)}</div>
+                    <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:1}}>
+                      <div style={{fontSize:14}}>🔒</div>
+                      <div style={{fontSize:8,fontWeight:700,color:"#7C3AED",textAlign:"center",lineHeight:1.2}}>{3-referralCount} invite{3-referralCount>1?"s":""} left</div>
+                    </div>
+                  </div>
+              }
             </div>
           </div>
         </div>
@@ -2449,9 +2728,19 @@ function DashboardScreen({score,rank,streak,accuracy,userStats,uid,onBack}){
           })}
         </div>
 
-        {/* Weakness Heatmap */}
-        <div style={{background:"#fff",borderRadius:24,padding:"16px 18px",marginBottom:16,boxShadow:"0 4px 12px rgba(0,0,0,.06)",animation:"dashFade .3s .1s ease both"}}>
-          <div style={{fontSize:14,fontWeight:800,color:"#1A1A2E",marginBottom:4}}>🔥 Weak Areas</div>
+        {/* Weakness Heatmap — locked until 3 referrals */}
+        <div style={{background:"#fff",borderRadius:24,padding:"16px 18px",marginBottom:16,boxShadow:"0 4px 12px rgba(0,0,0,.06)",animation:"dashFade .3s .1s ease both",position:"relative",overflow:"hidden"}}>
+          {referralCount < 3 && (
+            <div style={{position:"absolute",inset:0,backdropFilter:"blur(4px)",background:"rgba(255,255,255,.7)",
+              zIndex:10,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,borderRadius:24}}>
+              <div style={{fontSize:36}}>🔒</div>
+              <div style={{fontSize:14,fontWeight:800,color:"#1A1A2E",textAlign:"center"}}>Subject Heatmap Locked</div>
+              <div style={{fontSize:12,color:"#6B7280",textAlign:"center",maxWidth:220}}>
+                Invite <strong>{3-referralCount} more friend{3-referralCount>1?"s":""}</strong> who complete a battle to unlock your weakness analysis
+              </div>
+            </div>
+          )}
+          <div style={{fontSize:14,fontWeight:800,color:"#1A1A2E",marginBottom:4}}>🔥 Subject Heatmap</div>
           <div style={{fontSize:11,color:"#9CA3AF",fontWeight:600,marginBottom:14}}>Chapters needing most attention</div>
           {data.weak_chapters.map((ch,i)=>{
             const intensity=Math.round((100-ch.accuracy)/100*255);
@@ -2575,18 +2864,8 @@ function LoginScreen({onLogin}){
         <div style={{fontSize:11,color:"rgba(255,255,255,.5)",textAlign:"center",marginTop:16,lineHeight:1.6}}>
           By continuing you agree to our Terms of Service. Your data is safe and private.
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:10,margin:"16px 0 4px"}}>
-          <div style={{flex:1,height:1,background:"rgba(255,255,255,.2)"}}/>
-          <div style={{fontSize:11,color:"rgba(255,255,255,.45)",fontWeight:600}}>or</div>
-          <div style={{flex:1,height:1,background:"rgba(255,255,255,.2)"}}/>
-        </div>
-        <div onPointerUp={()=>onLogin({displayName:"Student",uid:"guest_"+Date.now()},("rankbattle-dev-key"))}
-          style={{width:"100%",padding:"13px",borderRadius:16,border:"1.5px solid rgba(255,255,255,.35)",background:"rgba(255,255,255,.08)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,cursor:"pointer",WebkitTapHighlightColor:"transparent",marginTop:4}}>
-          <span style={{fontSize:18}}>👤</span>
-          <div>
-            <div style={{fontSize:14,fontWeight:800,color:"rgba(255,255,255,.9)"}}>Continue as Guest</div>
-            <div style={{fontSize:10,color:"rgba(255,255,255,.55)",fontWeight:600}}>No sign-in required · Explore the app</div>
-          </div>
+        <div style={{fontSize:11,color:"rgba(255,255,255,.5)",textAlign:"center",marginTop:12,lineHeight:1.6,padding:"8px 0"}}>
+          🔗 Referral tracking requires a Google account · Sign in to earn rank analysis unlock
         </div>
       </div>
     </div>
@@ -3035,7 +3314,7 @@ function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}
     const today=new Date().toDateString();
     const usageKey="bb_doubt_usage_"+today;
     const usageData=JSON.parse(localStorage.getItem(usageKey)||'{"count":0}');
-    const isPremium=JSON.parse(localStorage.getItem("bb_premium")||'false');
+    const isPremium=LAUNCH_WEEK_ACTIVE || JSON.parse(localStorage.getItem("bb_premium")||'false');
     if(!isPremium && usageData.count>=3){
       setShowDPaywall(true); return;
     }
@@ -3467,6 +3746,7 @@ export default function App(){
 
 
   const [mockResult, setMockResult] = useState(null);
+  const [referralCount, setReferralCount] = useState(0);
   const [quizSubject,  setQuizSubject]  = useState(null);
   const [quizChapter,  setQuizChapter]  = useState(null);
   const [browseSubject,setBrowseSubject] = useState(null);
@@ -3475,7 +3755,8 @@ export default function App(){
 
   const startQuiz = async (subj=null, ch=null) => {
     const uid = authUser?.uid || null;
-    if (!DEV_MODE) {
+    // Launch week: all authenticated users get full access
+    if (!DEV_MODE && !LAUNCH_WEEK_ACTIVE) {
       if (!userUsage.is_premium && userUsage.dailyQuizzesCount >= 3) {
         setPaywallReason("You've used all 3 free quizzes for today. Upgrade to practice without limits.");
         setShowPaywall(true);
@@ -3499,7 +3780,7 @@ export default function App(){
 
   const startMock = async () => {
     const uid = authUser?.uid || null;
-    if (!DEV_MODE) {
+    if (!DEV_MODE && !LAUNCH_WEEK_ACTIVE) {
       if (!userUsage.is_premium && userUsage.hasAttemptedMock) {
         setPaywallReason("Free plan includes 1 mock test. Upgrade for unlimited NEET mock access.");
         setShowPaywall(true);
@@ -3557,6 +3838,12 @@ export default function App(){
         ]);
         setUserStats(stats);
         setUserUsage(usage);
+        // Load referral count for analysis lock
+        try{
+          const {getReferralCount} = await import("./firebase_utils");
+          const rc = await getReferralCount(user.uid);
+          setReferralCount(rc||0);
+        }catch(e){}
         if (usage.is_premium) localStorage.setItem("bb_premium","true");
         else localStorage.removeItem("bb_premium");
       } else {
@@ -3679,10 +3966,10 @@ export default function App(){
   else if(flow==="doubt"||flow==="feynman") content=<DoubtScreen onBack={()=>{setFlow(null);setTab("home");}} userName={authUser?.displayName?.split(" ")[0]||"Student"} initialMode={flow==="feynman"?"feynman":"doubt"} uid={authUser?.uid||null}/>;
   else if(flow==="browse"&&browseSubject) content=<ChapterSelectScreen subject={browseSubject} onChapter={ch=>startQuiz(browseSubject,ch)} onBack={()=>{setFlow(null);setBrowseSubject(null);}}/>;
   else if(tab==="home")     content=<HomeScreen onQuiz={startQuiz} onMock={startMock} onBrowse={subj=>{setBrowseSubject(subj);setFlow("browse");}} onDoubt={()=>setFlow("doubt")} score={score} rank={rank} streak={streak} accuracy={accuracy}/>;
-  else if(tab==="duel")     content=<DuelScreen kb={kb}/>;
+  else if(tab==="duel")     content=<DuelScreen kb={kb} uid={authUser?.uid} userName={authUser?.displayName?.split(" ")[0]||"You"}/>;
   else if(tab==="messages") content=<MessagesScreen/>;
   else if(tab==="ranks")    content=<RanksScreen currentUid={authUser?.uid}/>;
-  else if(tab==="dashboard") content=<DashboardScreen score={score} rank={rank} streak={streak} accuracy={accuracy} userStats={userStats} uid={authUser?.uid} onBack={()=>setTab("home")}/>;
+  else if(tab==="dashboard") content=<DashboardScreen score={score} rank={rank} streak={streak} accuracy={accuracy} userStats={userStats} uid={authUser?.uid} onBack={()=>setTab("home")} referralCount={referralCount}/>;
   else content=<ProfileScreen score={score} rank={rank} streak={streak} accuracy={accuracy} xp={xp} level={level} kb={kb} addQuestion={addQuestion} onFeynman={()=>setFlow("feynman")} userName={authUser?.displayName||"Student"} userEmail={authUser?.email||""} userPhoto={authUser?.photoURL||""} onSignOut={async()=>{await signOutUser();setAuthUser(null);localStorage.removeItem("bb_auth_token");}} onSignIn={()=>setAuthUser(null)} userStats={userStats}/>;
 
   // Show loading while checking auth
@@ -3703,6 +3990,10 @@ export default function App(){
             setAuthUser(user);
             localStorage.setItem("bb_uid", user.uid);
             ensureUserDoc(user).catch(console.error);
+            // Clean ?ref= from URL after it's been captured in ensureUserDoc
+            if(window.location.search.includes("ref=")){
+              window.history.replaceState({},"",window.location.pathname);
+            }
             const stats = await getUserStats(user.uid);
             setUserStats(stats);
           }
@@ -3726,7 +4017,8 @@ export default function App(){
   return(
     <>
       <style>{CSS}</style>
-      <div style={{maxWidth:430,margin:"0 auto",minHeight:"100vh",position:"relative",background:"var(--bg)"}}>
+      {LAUNCH_WEEK_ACTIVE&&<LaunchBanner referralCount={referralCount}/>}
+      <div style={{maxWidth:430,margin:"0 auto",minHeight:"100vh",position:"relative",background:"var(--bg)",paddingTop:LAUNCH_WEEK_ACTIVE?"38px":"0"}}>
         {content}
         {!inFlow&&<BottomNav tab={tab} setTab={setTab} onQuiz={startQuiz}/>}
         {showPaywall&&<PaywallModal onClose={()=>{setShowPaywall(false);setPaywallReason("");}} reason={paywallReason} uid={authUser?.uid||null} onSuccess={()=>{setUserUsage(u=>({...u,is_premium:true}));}}/>}

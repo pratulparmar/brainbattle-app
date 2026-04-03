@@ -67,13 +67,21 @@ export async function ensureUserDoc(user) {
 
   if (!snap.exists()) {
     // ── Brand-new user ────────────────────────────────────────────────────────
+    // Capture referral code from URL: neet.rankbattle.in?ref=<uid_prefix>
+    const urlRef = typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("ref")
+      : null;
+
     await setDoc(ref, {
-      uid:        user.uid,
-      name:       user.displayName || "Student",
-      email:      user.email       || "",
-      photoURL:   user.photoURL    || "",
-      is_premium: false,
-      createdAt:  new Date().toISOString(),
+      uid:               user.uid,
+      name:              user.displayName || "Student",
+      email:             user.email       || "",
+      photoURL:          user.photoURL    || "",
+      is_premium:        false,
+      createdAt:         new Date().toISOString(),
+      referredBy:        urlRef || null,   // who invited them
+      referralProcessed: false,            // flipped to true after first battle
+      referral_count:    0,                // how many valid invites this user has made
       usage: {
         dailyQuizzesCount: 0,
         hasAttemptedMock:  false,
@@ -90,6 +98,13 @@ export async function ensureUserDoc(user) {
         rank:        999,
       },
     });
+
+    // Write referral_index entry so processReferral can find this user's referrer in O(1)
+    const uidPrefix = user.uid.slice(0, 8);
+    try {
+      const { setDoc: sdoc, doc: ddoc } = await import("firebase/firestore");
+      await sdoc(ddoc(db, "referral_index", uidPrefix), { uid: user.uid });
+    } catch(e) { /* non-critical */ }
 
     // 🔑  Send welcome email — fire-and-forget, never blocks login
     if (user.email) {
@@ -301,6 +316,66 @@ export async function saveQuizResult(uid, { score, subject, correct, total, time
   } catch (e) {
     console.warn("saveQuizResult:", e);
     return null;
+  }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  REFERRAL SYSTEM
+//  A referral is counted only when the referred user completes their first battle.
+//  Flow:
+//    1. User A shares link: neet.rankbattle.in?ref=<uid_prefix>
+//    2. User B lands, signs up → ensureUserDoc stores referredBy = uid_prefix
+//    3. After User B's first battle, App.jsx calls processReferral(userB.uid)
+//    4. processReferral looks up referredBy, increments referrer's referral_count
+//    5. Once referral_count >= 3, rank predictor + heatmap unlock automatically
+// ══════════════════════════════════════════════════════════════════════════════
+
+export async function getReferralCount(uid) {
+  if (!uid) return 0;
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    return snap.exists() ? (snap.data().referral_count || 0) : 0;
+  } catch (e) {
+    console.warn("getReferralCount:", e);
+    return 0;
+  }
+}
+
+/**
+ * processReferral — call this after a new user completes their first battle.
+ * Finds who referred them and increments that user's referral_count by 1.
+ */
+export async function processReferral(newUserUid) {
+  if (!newUserUid) return;
+  try {
+    const snap = await getDoc(doc(db, "users", newUserUid));
+    if (!snap.exists()) return;
+    const data = snap.data();
+    // Only count once — mark the referral as processed
+    if (!data.referredBy || data.referralProcessed) return;
+
+    const referredByPrefix = data.referredBy;
+
+    // Find the referrer by matching uid prefix (first 8 chars — unique enough)
+    // We store the full uid in a lookup doc for O(1) resolution
+    const referrerSnap = await getDoc(doc(db, "referral_index", referredByPrefix));
+    if (!referrerSnap.exists()) return;
+    const referrerUid = referrerSnap.data().uid;
+    if (!referrerUid || referrerUid === newUserUid) return;
+
+    // Increment referrer's count and mark this referral as processed
+    await Promise.all([
+      updateDoc(doc(db, "users", referrerUid), {
+        referral_count: increment(1),
+      }),
+      updateDoc(doc(db, "users", newUserUid), {
+        referralProcessed: true,
+      }),
+    ]);
+    console.log(`Referral credited: ${referrerUid} +1 (referred ${newUserUid})`);
+  } catch (e) {
+    console.warn("processReferral:", e);
   }
 }
 
