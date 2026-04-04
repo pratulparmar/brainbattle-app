@@ -2400,14 +2400,25 @@ function NeetMockScreen({onFinish, onBack}) {
             {isReview ? "🔖 Marked" : "🔖 Mark Review"}
           </button>
           <button onClick={() => {
-            if (currentIdx < currentQs.length - 1) setCurrentIdx(i => i+1);
-            else {
-              const sections = Object.keys(SECTIONS);
-              const nextSection = sections[sections.indexOf(currentSection)+1];
-              if (nextSection) { setCurrentSection(nextSection); setCurrentIdx(0); }
+            const sections = Object.keys(SECTIONS);
+            const isLastSection = sections.indexOf(currentSection) === sections.length - 1;
+            const isLastQuestion = currentIdx === currentQs.length - 1;
+            if (!isLastQuestion) {
+              setCurrentIdx(i => i + 1);
+            } else if (!isLastSection) {
+              const nextSection = sections[sections.indexOf(currentSection) + 1];
+              setCurrentSection(nextSection);
+              setCurrentIdx(0);
+            } else {
+              // Last question of last section — show submit confirm
+              setShowSubmitConfirm(true);
             }
-          }} style={{flex:2,padding:"12px",background:"#1E1B4B",border:"none",borderRadius:12,color:"#fff",fontWeight:700,fontSize:13}}>
-            Next →
+          }} style={{flex:2,padding:"12px",
+            background: (currentIdx === currentQs.length-1 && Object.keys(SECTIONS).indexOf(currentSection) === Object.keys(SECTIONS).length-1) ? "#EF4444" : "#1E1B4B",
+            border:"none",borderRadius:12,color:"#fff",fontWeight:700,fontSize:13}}>
+            {(currentIdx === currentQs.length-1 && Object.keys(SECTIONS).indexOf(currentSection) === Object.keys(SECTIONS).length-1)
+              ? "Submit Test ✓"
+              : "Next →"}
           </button>
         </div>
 
@@ -3968,25 +3979,28 @@ export default function App(){
 
   let content;
   if(flow==="loading")     content=<LoadingScreen onReady={qs=>{setQs(qs);setFlow("quiz");}} kb={kb} subject={quizSubject} chapter={quizChapter}/>;
-  else if(flow==="quiz"&&questions) content=<QuizScreen questions={questions} onFinish={async r=>{
+  else if(flow==="quiz"&&questions) content=<QuizScreen questions={questions} onFinish={r=>{
+          // Navigate immediately — never block results on network calls
           setResult(r);
+          setFlow("results");
+          // Fire-and-forget all backend syncing in background
           const uid=localStorage.getItem("bb_uid");
           if(uid && r){
-            // 1. Save aggregate result to Firestore
-            const saved=await saveQuizResult(uid,{
+            saveQuizResult(uid,{
               score:r.ptsEarned||0,
               subject:quizSubject||"General",
               correct:r.score||0,
               total:r.total||5,
               timeSecs:r.timeUsed||180,
-            });
-            if(saved) setUserStats(s=>({...s,
-              totalPoints:saved.newPoints,
-              accuracy:saved.newAccuracy,
-              level:saved.newLevel,
-              streak:saved.newStreak,
-            }));
-            // 2. Sync per-question records to Railway analytics (fire-and-forget)
+            }).then(saved=>{
+              if(saved) setUserStats(s=>({...s,
+                totalPoints:saved.newPoints,
+                accuracy:saved.newAccuracy,
+                level:saved.newLevel,
+                streak:saved.newStreak,
+              }));
+            }).catch(e=>console.warn("saveQuizResult:",e));
+            // Sync per-question records to Railway analytics
             if(r.answers && questions){
               const perQ=Object.entries(r.answers).map(([idx,a])=>({
                 user_id:    uid,
@@ -4003,7 +4017,6 @@ export default function App(){
               }).catch(e=>console.warn("sync-progress:",e));
             }
           }
-          setFlow("results");
         }}/>;
   else if(flow==="results"&&result) content=<ResultsScreen result={result} questions={questions} onHome={goHome} onRetry={()=>startQuiz(quizSubject,quizChapter)}/>;
   
