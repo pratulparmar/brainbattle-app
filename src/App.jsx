@@ -7,7 +7,7 @@ import { QB, getRandom, getChaptersForSubject, QB_STATS } from "./QB.js";
    SUBJECT META
 ══════════════════════════════════════ */
 /* ── Single API base — never use localhost in production ──────────────── */
-const API_BASE  = "https://brainbattle-rag-production.up.railway.app";
+const API_BASE  = "https://api.rankbattle.in";
 const getAppToken = () => localStorage.getItem("bb_auth_token") || "rankbattle-dev-key";
 
 /* ── Launch Week Config ─────────────────────────────────────────── */
