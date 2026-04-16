@@ -1,25 +1,11 @@
 /* eslint-disable */
 import React, { useState, useEffect, useRef } from "react";
-import { signInWithGoogle, signOutUser, onAuthChange, checkRedirectResult, getUserStats, getUserUsage, verifyAccess, incrementUsage, saveQuizResult, getLeaderboard, ensureUserDoc } from "./firebase_utils";
+import { signInWithGoogle, signOutUser, onAuthChange, getUserStats, saveQuizResult, getLeaderboard, ensureUserDoc } from "./firebase_utils";
 import { QB, getRandom, getChaptersForSubject, QB_STATS } from "./QB.js";
 
 /* ══════════════════════════════════════
    SUBJECT META
 ══════════════════════════════════════ */
-/* ── Single API base — never use localhost in production ──────────────── */
-const API_BASE  = "https://api.rankbattle.in";
-const getAppToken = () => localStorage.getItem("bb_auth_token") || "rankbattle-dev-key";
-
-/* ── Launch Week Config ─────────────────────────────────────────── */
-const LAUNCH_WEEK_ACTIVE = true;
-const LAUNCH_END_DATE    = new Date("2026-04-10T23:59:59+05:30");
-function getLaunchDaysLeft(){
-  return Math.max(0, Math.ceil((LAUNCH_END_DATE - new Date()) / 86400000));
-}
-function getReferralLink(uid){
-  return "https://neet.rankbattle.in?ref=" + (uid ? uid.slice(0,8) : "share");
-}
-
 const SUBJECT_META = {
   Physics:   { icon:"⚛️", color:"#FF6B6B", bg:"#FFF0F0", exam:"NEET" },
   Chemistry: { icon:"🧪", color:"#FFB347", bg:"#FFF8EE", exam:"NEET" },
@@ -192,7 +178,7 @@ function HomeScreen({onQuiz,onMock,onBrowse,onDoubt,score,rank,streak,accuracy})
         <div style={{padding:"52px 20px 0",display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
           <div>
             <div style={{fontSize:13,color:"#9CA3AF",fontWeight:600,marginBottom:2}}>Good day! 👋</div>
-            <div style={{fontSize:28,fontWeight:900,color:"#1A1A2E",letterSpacing:-0.5,lineHeight:1}}>RankBattle</div>
+            <div style={{fontSize:28,fontWeight:900,color:"#1A1A2E",letterSpacing:-0.5,lineHeight:1}}>BrainBattle</div>
             <div style={{fontSize:12,color:"#9CA3AF",marginTop:3,fontWeight:600}}>NEET 2026 Ready 🎯</div>
           </div>
           <div style={{textAlign:"right"}}>
@@ -243,7 +229,7 @@ function HomeScreen({onQuiz,onMock,onBrowse,onDoubt,score,rank,streak,accuracy})
           <div style={{fontSize:40,animation:"homeFloat 3s ease infinite",flexShrink:0}}>🧠</div>
           <div>
             <div style={{fontSize:15,fontWeight:900,color:"#5D4037"}}>Ask Dr. Neuron</div>
-            <div style={{fontSize:12,color:"#8D6E63",fontWeight:600,marginTop:2}}>NCERT-grounded doubt solving</div>
+            <div style={{fontSize:12,color:"#8D6E63",fontWeight:600,marginTop:2}}>3 free questions/day · Feynman method</div>
           </div>
           <div style={{marginLeft:"auto",fontSize:20,color:"#8D6E63"}}>›</div>
         </div>
@@ -275,462 +261,248 @@ function HomeScreen({onQuiz,onMock,onBrowse,onDoubt,score,rank,streak,accuracy})
 /* ══════════════════════════════════════
    DUEL SCREEN
 ══════════════════════════════════════ */
+function DuelScreen({kb}){
+  const pool=kb&&kb.length>0?kb:QB;
+  const [phase,setPhase]=useState("lobby"); // lobby|countdown|battle|result
+  const [opponent,setOpponent]=useState(null);
+  const [countdown,setCountdown]=useState(3);
+  const [questions,setQuestions]=useState([]);
+  const [qIdx,setQIdx]=useState(0);
+  const [myAnswers,setMyAnswers]=useState({});
+  const [myPts,setMyPts]=useState(0);
+  const [opPts,setOpPts]=useState(0);
+  const [feedback,setFeedback]=useState(null);
+  const [selected,setSelected]=useState(null);
+  const [cardKey,setCardKey]=useState(0);
+  const [timeLeft,setTimeLeft]=useState(15);
+  const [xpToast,setXpToast]=useState(null);
+  const [confetti,setConfetti]=useState(false);
+  const [opProgress,setOpProgress]=useState(0);
 
-/* ══════════════════════════════════════
-   LAUNCH WEEK BANNER
-══════════════════════════════════════ */
-function LaunchBanner({referralCount=0}){
-  const daysLeft = getLaunchDaysLeft();
-  if(!LAUNCH_WEEK_ACTIVE || daysLeft <= 0) return null;
-  const invitesLeft = Math.max(0, 3 - referralCount);
-  return(
-    <div style={{
-      position:"fixed",top:0,left:0,right:0,zIndex:9999,
-      background:"linear-gradient(90deg,#7C3AED,#E91E8C,#FF6B35)",
-      padding:"8px 14px",
-      display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,
-      boxShadow:"0 2px 12px rgba(124,58,237,.4)",
-    }}>
-      <div style={{fontSize:11,color:"#fff",fontWeight:700,lineHeight:1.4}}>
-        {"🔥 "}
-        <strong>{daysLeft} day{daysLeft!==1?"s":""}</strong>
-        {" of Pro Access left"}
-        {invitesLeft > 0 && (
-          <span style={{opacity:.85}}>
-            {" · Rank analysis unlocks after "}
-            <strong>{invitesLeft} more invite{invitesLeft>1?"s":""}</strong>
-          </span>
-        )}
-      </div>
-      <div style={{fontSize:10,color:"rgba(255,255,255,.9)",fontWeight:700,flexShrink:0,
-        background:"rgba(255,255,255,.2)",borderRadius:8,padding:"3px 8px",whiteSpace:"nowrap"}}>
-        NEET 2026 🚀
-      </div>
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════
-   BATTLE CARD — post-game share card
-══════════════════════════════════════ */
-function BattleCard({myPts, opPts, opponent, questions, myAnswers, subject, uid, onRematch, onHome}){
-  const won        = myPts >= opPts;
-  const total      = questions.reduce((s,q)=>s+(q.pts||100),0) || 500;
-  const correct    = Object.values(myAnswers).filter(a=>a.correct).length;
-  const accuracy   = questions.length > 0 ? Math.round((correct/questions.length)*100) : 0;
-  const percentile = Math.min(99, Math.max(1, Math.round(accuracy * 1.35)));
-  const refLink    = getReferralLink(uid);
-  const shareText  = won
-    ? ("I am in the Top "+(100-percentile)+"% of "+((subject)||"NEET")+" aspirants on RankBattle! Scored "+myPts+" pts. Beat me: "+refLink)
-    : ("Just battled on RankBattle — "+accuracy+"% accuracy. Challenge me: "+refLink);
-
-  const handleShare = () => {
-    const waUrl = "https://api.whatsapp.com/send?text="+encodeURIComponent(shareText);
-    if(navigator.share){
-      navigator.share({title:"RankBattle Score",text:shareText,url:refLink})
-        .catch(()=>window.open(waUrl,"_blank"));
-    } else {
-      window.open(waUrl,"_blank");
-    }
+  const startDuel=(opp)=>{
+    setOpponent(opp);
+    setPhase("countdown");
+    setCountdown(3);
   };
 
-  return(
-    <div style={{minHeight:"100vh",paddingBottom:110,background:"var(--bg)",position:"relative"}}>
-      <BlobBg/>
-      <div style={{position:"relative",zIndex:1,padding:"60px 18px 0"}}>
-
-        {/* Result banner */}
-        <div style={{
-          borderRadius:28,padding:"28px 20px",marginBottom:16,textAlign:"center",
-          background:won?"linear-gradient(135deg,#F0FDF4,#DCFCE7)":"linear-gradient(135deg,#FFF5F5,#FEE2E2)",
-          border:"2px solid "+(won?"var(--green)":"var(--red)"),
-          boxShadow:won?"0 8px 32px rgba(34,197,94,.2)":"0 8px 32px rgba(239,68,68,.12)",
-          animation:"scaleIn .4s ease",
-        }}>
-          <div style={{fontSize:64,marginBottom:4}}>{won?"🏆":"😤"}</div>
-          <div style={{fontSize:28,fontWeight:900,color:won?"var(--green)":"var(--red)",marginBottom:4}}>
-            {won?"Victory!":"Keep Training"}
-          </div>
-          <div style={{fontSize:13,color:"var(--sub)",fontWeight:600}}>
-            {won
-              ? ("You crushed "+(opponent?.name||"Rival")+" by "+(myPts-opPts)+" pts 🎯")
-              : ((opponent?.name||"Rival")+" beat you by "+(opPts-myPts)+" pts — rematch?")}
-          </div>
-        </div>
-
-        {/* Stats grid */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-          {[
-            {label:"Your Score",  val:myPts,                color:"var(--orange)", icon:"⚡"},
-            {label:"Rival Score", val:opPts,                color:opponent?.color||"#7C3AED", icon:opponent?.emoji||"🤖"},
-            {label:"Accuracy",    val:accuracy+"%",          color:"#667EEA",       icon:"🎯"},
-            {label:"Percentile",  val:"Top "+(100-percentile)+"%", color:"#7C3AED", icon:"📊"},
-          ].map((s,i)=>(
-            <div key={i} style={{background:"#fff",borderRadius:20,padding:"14px",
-              boxShadow:"0 4px 12px rgba(0,0,0,.06)",border:"1px solid #F0EBE0",textAlign:"center"}}>
-              <div style={{fontSize:22,marginBottom:4}}>{s.icon}</div>
-              <div style={{fontSize:20,fontWeight:900,color:s.color}}>{s.val}</div>
-              <div style={{fontSize:10,color:"var(--sub)",fontWeight:700,marginTop:2,
-                textTransform:"uppercase",letterSpacing:.5}}>{s.label}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* WhatsApp share card */}
-        <div style={{
-          background:"linear-gradient(135deg,#667EEA,#764BA2)",
-          borderRadius:24,padding:"18px",marginBottom:14,
-          boxShadow:"0 8px 24px rgba(102,126,234,.35)",
-        }}>
-          <div style={{fontSize:14,fontWeight:800,color:"#fff",marginBottom:6}}>
-            📣 Challenge your friends!
-          </div>
-          <div style={{fontSize:12,color:"rgba(255,255,255,.8)",marginBottom:14,lineHeight:1.5,
-            background:"rgba(0,0,0,.15)",borderRadius:10,padding:"10px 12px",fontStyle:"italic"}}>
-            "{shareText.slice(0,100)}..."
-          </div>
-          <button onClick={handleShare} style={{
-            width:"100%",padding:"13px",
-            background:"#25D366",border:"none",borderRadius:14,
-            color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer",
-            display:"flex",alignItems:"center",justifyContent:"center",gap:10,
-            boxShadow:"0 4px 16px rgba(37,211,102,.4)",
-          }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff">
-              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
-              <path d="M11.999 2C6.477 2 2 6.477 2 12c0 1.89.525 3.659 1.438 5.168L2 22l4.978-1.304A9.96 9.96 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2z"/>
-            </svg>
-            Share to WhatsApp
-          </button>
-        </div>
-
-        {/* Referral nudge */}
-        <div style={{
-          background:"#FFF9E6",border:"1px solid #FDE68A",borderRadius:18,
-          padding:"14px 16px",marginBottom:16,
-          display:"flex",alignItems:"center",gap:12,
-        }}>
-          <div style={{fontSize:28}}>🔗</div>
-          <div style={{flex:1}}>
-            <div style={{fontSize:13,fontWeight:800,color:"#92400E"}}>
-              Invite 3 friends → Unlock Rank Predictor
-            </div>
-            <div style={{fontSize:10,color:"#B45309",marginTop:2,wordBreak:"break-all"}}>{refLink}</div>
-          </div>
-        </div>
-
-        <div style={{display:"flex",gap:10}}>
-          <GradBtn onClick={onRematch} style={{flex:1}}>⚔️ Rematch</GradBtn>
-          <GradBtn onClick={onHome} outlined style={{flex:1}}>🏠 Home</GradBtn>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DuelScreen({kb, uid, userName}){
-  const pool = (kb && kb.length > 0 ? kb : QB).filter(q => q && q.q && Array.isArray(q.opts) && q.opts.length >= 2);
-  const [phase, setPhase]       = useState("matchmaking"); // matchmaking|countdown|battle|result
-  const [opponent, setOpponent] = useState(null);
-  const [isGhost, setIsGhost]   = useState(false);
-  const [matchTimer, setMatchTimer] = useState(10);
-  const [countdown, setCountdown]   = useState(3);
-  const [questions, setQuestions]   = useState([]);
-  const [qIdx, setQIdx]             = useState(0);
-  const [myAnswers, setMyAnswers]   = useState({});
-  const [myPts, setMyPts]           = useState(0);
-  const [opPts, setOpPts]           = useState(0);
-  const [opScore, setOpScore]       = useState(0); // running ghost score
-  const [feedback, setFeedback]     = useState(null);
-  const [selected, setSelected]     = useState(null);
-  const [cardKey, setCardKey]       = useState(0);
-  const [timeLeft, setTimeLeft]     = useState(120); // global 120s battle timer
-  const [qTime, setQTime]           = useState(Date.now()); // per-question start time
-  const [xpToast, setXpToast]       = useState(null);
-  const [confetti, setConfetti]     = useState(false);
-  const labels = ["A","B","C","D"];
-  const MAX_PTS = questions.reduce((s,q)=>s+(q.pts||100),0)||500;
-
-  // ── Matchmaking: 10s search then ghost fallback ──
+  // Countdown timer
   useEffect(()=>{
-    if(phase !== "matchmaking") return;
-    if(matchTimer <= 0){
-      const ghost = GHOST_OPPONENTS[Math.floor(Math.random()*GHOST_OPPONENTS.length)];
-      setOpponent(ghost); setIsGhost(true); setPhase("countdown"); setCountdown(3); return;
-    }
-    const t = setTimeout(()=>setMatchTimer(v=>v-1), 1000);
-    return ()=>clearTimeout(t);
-  },[phase, matchTimer]);
+    if(phase!=="countdown") return;
+    if(countdown<=0){ setPhase("battle"); setQuestions([...pool].sort(()=>Math.random()-0.5).slice(0,5)); setQIdx(0); setMyPts(0); setOpPts(0); setMyAnswers({}); setTimeLeft(15); return; }
+    const t=setTimeout(()=>setCountdown(c=>c-1),1000);
+    return()=>clearTimeout(t);
+  },[phase,countdown]);
 
-  // ── Countdown ──
+  // Per-question timer
   useEffect(()=>{
-    if(phase !== "countdown") return;
-    if(countdown <= 0){
-      const qs = [...pool].sort(()=>Math.random()-0.5).slice(0,8);
-      setQuestions(qs); setPhase("battle");
-      setQIdx(0); setMyPts(0); setOpPts(0); setOpScore(0);
-      setMyAnswers({}); setTimeLeft(120); setQTime(Date.now()); return;
-    }
-    const t = setTimeout(()=>setCountdown(c=>c-1), 1000);
-    return ()=>clearTimeout(t);
-  },[phase, countdown]);
+    if(phase!=="battle") return;
+    if(timeLeft<=0&&!feedback){ handleSelect(-1); return; }
+    const t=setTimeout(()=>setTimeLeft(v=>v-1),1000);
+    return()=>clearTimeout(t);
+  },[phase,timeLeft,feedback]);
 
-  // ── Global 120s battle timer ──
+  // Opponent "thinking" progress
   useEffect(()=>{
-    if(phase !== "battle") return;
-    if(timeLeft <= 0){ finalizeBattle(myAnswers, myPts); return; }
-    const t = setTimeout(()=>setTimeLeft(v=>v-1), 1000);
-    return ()=>clearTimeout(t);
-  },[phase, timeLeft]);
+    if(phase!=="battle"||feedback) return;
+    const delay=Math.random()*8000+3000;
+    const t=setTimeout(()=>{
+      const isRight=Math.random()<(opponent?.winRate||50)/100;
+      if(isRight) setOpPts(p=>p+(questions[qIdx]?.pts||100));
+      setOpProgress(p=>p+20);
+    },delay);
+    return()=>clearTimeout(t);
+  },[phase,qIdx,feedback,opponent,questions]);
 
-  // ── Ghost opponent advances score realistically ──
-  useEffect(()=>{
-    if(phase !== "battle" || !isGhost || feedback) return;
-    const delay = 1500 + Math.random()*5000;
-    const t = setTimeout(()=>{
-      const isRight = Math.random() < (opponent?.winRate||60)/100;
-      if(isRight){ const gainPts = questions[qIdx]?.pts||100; setOpPts(p=>p+gainPts); setOpScore(p=>p+gainPts); }
-    }, delay);
-    return ()=>clearTimeout(t);
-  },[phase, qIdx, isGhost, feedback, opponent, questions]);
-
-  const finalizeBattle = (answers, finalMyPts) => {
-    const finalOp = isGhost
-      ? Math.round((opponent.avgScore/100)*MAX_PTS * (0.75 + Math.random()*0.3))
-      : opPts;
-    setMyPts(finalMyPts); setOpPts(finalOp); setPhase("result");
-    // Credit referral if this is the user's first battle
-    if(uid){
-      import("./firebase_utils").then(({processReferral})=>{
-        processReferral(uid).catch(()=>{});
-      });
-    }
-  };
-
-  const handleSelect = (i) => {
+  const handleSelect=(i)=>{
     if(feedback) return;
-    const q = questions[qIdx];
+
     if(!q) return;
-    const timeTaken = (Date.now() - qTime) / 1000;
-    const isCorrect = i >= 0 && i === q.ans;
-    setSelected(i); setFeedback(isCorrect ? "correct" : "wrong");
-    // Speed bonus: faster correct answers worth more (max 30% bonus)
-    const speedBonus  = isCorrect ? Math.max(0, Math.round((q.pts||100) * 0.3 * (1 - timeTaken/20))) : 0;
-    const earnedPts   = isCorrect ? (q.pts||100) + speedBonus : 0;
-    const newAns      = {...myAnswers, [qIdx]:{selected:i, correct:isCorrect, pts:earnedPts}};
+    const isCorrect=i>=0&&i===q.ans;
+    setSelected(i);
+    setFeedback(isCorrect?"correct":"wrong");
+    const newAns={...myAnswers,[qIdx]:{selected:i,correct:isCorrect,pts:q.pts}};
     setMyAnswers(newAns);
-    if(isCorrect){ setMyPts(p=>p+earnedPts); setXpToast(earnedPts); setConfetti(true); setTimeout(()=>setConfetti(false),800); }
+    if(isCorrect){setMyPts(p=>p+q.pts);setXpToast(q.pts);setConfetti(true);setTimeout(()=>setConfetti(false),800);}
     setTimeout(()=>{
-      const nextIdx = qIdx + 1;
-      if(nextIdx >= questions.length){ finalizeBattle(newAns, Object.values(newAns).reduce((s,a)=>s+a.pts,0)); return; }
-      setQIdx(nextIdx); setSelected(null); setFeedback(null); setCardKey(k=>k+1); setQTime(Date.now());
-    }, 1600);
+      if(qIdx+1>=questions.length){
+        // Battle done
+        const finalMy=Object.values(newAns).reduce((s,a)=>s+(a.correct?a.pts:0),0);
+        const finalOp=Math.round((opponent.avgScore/100)*questions.reduce((s,q)=>s+q.pts,0)*0.9+Math.random()*100);
+        setMyPts(finalMy); setOpPts(finalOp);
+        setPhase("result");
+        return;
+      }
+      setQIdx(x=>x+1); setSelected(null); setFeedback(null); setCardKey(k=>k+1); setTimeLeft(15); setOpProgress(p=>p+20);
+    },1800);
   };
 
-  const q = questions[qIdx];
-  const myPct   = MAX_PTS > 0 ? Math.min(100,(myPts/MAX_PTS)*100) : 0;
-  const opPct   = MAX_PTS > 0 ? Math.min(100,(opPts/MAX_PTS)*100) : 0;
-  const fmtTime = s => Math.floor(s/60)+":"+String(s%60).padStart(2,"0");
+  const safeQs = Array.isArray(questions) ? questions.filter(q => q && q.q && q.q.length > 5 && Array.isArray(q.opts) && q.opts.length >= 2) : [];
+  const q = safeQs[qIdx];
+  const labels=["A","B","C","D"];
 
-  // ── MATCHMAKING screen ──
-  if(phase === "matchmaking") return(
-    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",
-      justifyContent:"center",background:"var(--bg)",position:"relative",padding:24}}>
+  if(phase==="lobby") return(
+    <div style={{minHeight:"100vh",paddingBottom:110,position:"relative"}}>
       <BlobBg/>
-      <div style={{position:"relative",zIndex:1,textAlign:"center"}}>
-        <div style={{fontSize:64,animation:"spinOnce 2s linear infinite",marginBottom:16}}>⚔️</div>
-        <div style={{fontSize:22,fontWeight:900,color:"var(--tx)",marginBottom:6}}>Finding Rival…</div>
-        <div style={{fontSize:14,color:"var(--sub)",marginBottom:24}}>
-          Searching for a live opponent
+      <div style={{position:"relative",zIndex:1,padding:"52px 18px 0"}}>
+        {/* Header */}
+        <div style={{background:"var(--grad)",borderRadius:20,padding:"22px 20px",marginBottom:24,textAlign:"center",boxShadow:"0 6px 28px rgba(233,30,140,.3)"}}>
+          <div style={{fontSize:36,marginBottom:4}}>⚔️</div>
+          <div style={{fontSize:22,fontWeight:800,color:"#fff"}}>Duel Arena</div>
+          <div style={{fontSize:13,color:"rgba(255,255,255,.8)"}}>Challenge a rival. Win, rank up, earn points!</div>
         </div>
-        <div style={{width:80,height:80,borderRadius:"50%",
-          border:"6px solid #F0EBE0",borderTopColor:"var(--pink)",
-          animation:"spinOnce .8s linear infinite",margin:"0 auto 20px"}}/>
-        <div style={{fontSize:32,fontWeight:900,color:"var(--pink)"}}>{matchTimer}s</div>
-        <div style={{fontSize:12,color:"var(--sub)",marginTop:8}}>
-          {matchTimer <= 3 ? "No live rival found — starting Ghost Battle 👻" : "Matching with a live opponent…"}
-        </div>
-        <div style={{marginTop:24,padding:"10px 16px",background:"#FFF9E6",borderRadius:14,
-          border:"1px solid #FDE68A",maxWidth:280}}>
-          <div style={{fontSize:12,color:"#92400E",fontWeight:600}}>
-            👻 <strong>Ghost Battle:</strong> compete against a recorded high-score from our top players
-          </div>
-        </div>
+        <div style={{fontSize:18,fontWeight:800,marginBottom:14}}>Choose your opponent</div>
+        {OPPONENTS.map((opp,i)=>(
+          <Card key={i} style={{padding:"14px 16px",marginBottom:12,animation:`fadeUp .3s ${i*.06}s ease both`}}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div style={{position:"relative"}}>
+                <div style={{width:50,height:50,borderRadius:"50%",background:opp.color+"22",border:"2px solid "+opp.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>{opp.emoji}</div>
+                <div style={{position:"absolute",bottom:1,right:1,width:12,height:12,borderRadius:"50%",background:"#22C55E",border:"2px solid #fff"}}/>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <div style={{fontSize:15,fontWeight:700}}>{opp.name}</div>
+                  <span style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:opp.color+"18",color:opp.color,fontWeight:700}}>Rank #{opp.rank}</span>
+                </div>
+                <div style={{fontSize:11,color:"var(--sub)",marginTop:2}}>{opp.tag} · {opp.streak}🔥 streak · {opp.winRate}% win rate</div>
+                <div style={{display:"flex",gap:4,marginTop:4}}>
+                  {opp.topics.slice(0,2).map(t=><span key={t} style={{fontSize:9,padding:"2px 6px",borderRadius:8,background:"#F0F0F0",color:"var(--sub)",fontWeight:600}}>{t}</span>)}
+                </div>
+              </div>
+              <button onClick={()=>startDuel(opp)} style={{padding:"8px 14px",background:"var(--grad)",border:"none",borderRadius:10,color:"#fff",fontWeight:700,fontSize:12,flexShrink:0,boxShadow:"0 3px 12px rgba(233,30,140,.3)"}}>Duel ⚔️</button>
+            </div>
+          </Card>
+        ))}
       </div>
     </div>
   );
 
-  // ── COUNTDOWN ──
-  if(phase === "countdown") return(
-    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",
-      justifyContent:"center",background:"var(--bg)",position:"relative"}}>
+  if(phase==="countdown") return(
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"var(--bg)",position:"relative"}}>
       <BlobBg/>
       <div style={{position:"relative",zIndex:1,textAlign:"center",padding:24}}>
-        {isGhost && (
-          <div style={{background:"#FFF9E6",border:"1px solid #FDE68A",borderRadius:12,
-            padding:"8px 16px",marginBottom:20,fontSize:12,color:"#92400E",fontWeight:700}}>
-            👻 Ghost Battle — competing vs {opponent?.name}'s recorded performance
-          </div>
-        )}
-        <div style={{display:"flex",justifyContent:"center",gap:32,marginBottom:32}}>
+        <div style={{display:"flex",justifyContent:"center",gap:32,marginBottom:40}}>
           <div style={{textAlign:"center"}}>
-            <div style={{width:70,height:70,borderRadius:"50%",background:"var(--grad)",
-              display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,
-              margin:"0 auto 8px",boxShadow:"0 4px 20px rgba(233,30,140,.3)"}}>🎯</div>
-            <div style={{fontWeight:700,fontSize:13}}>{userName||"You"}</div>
+            <div style={{width:70,height:70,borderRadius:"50%",background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,margin:"0 auto 8px",boxShadow:"0 4px 20px rgba(233,30,140,.3)"}}>🎯</div>
+            <div style={{fontWeight:700,fontSize:14}}>You</div>
           </div>
           <div style={{display:"flex",alignItems:"center",fontSize:28,fontWeight:900,color:"var(--orange)"}}>VS</div>
           <div style={{textAlign:"center"}}>
-            <div style={{width:70,height:70,borderRadius:"50%",
-              background:(opponent?.color||"#7C3AED")+"22",
-              border:"3px solid "+(opponent?.color||"#7C3AED"),
-              display:"flex",alignItems:"center",justifyContent:"center",
-              fontSize:32,margin:"0 auto 8px"}}>{opponent?.emoji||"🤖"}</div>
-            <div style={{fontWeight:700,fontSize:13}}>{opponent?.name||"Ghost"}</div>
+            <div style={{width:70,height:70,borderRadius:"50%",background:opponent.color+"22",border:"3px solid "+opponent.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,margin:"0 auto 8px"}}>{opponent.emoji}</div>
+            <div style={{fontWeight:700,fontSize:14}}>{opponent.name}</div>
           </div>
         </div>
-        <div style={{fontSize:100,fontWeight:900,lineHeight:1,color:"var(--orange)",animation:"popIn .4s ease"}}>
-          {countdown===0?"GO!":countdown}
-        </div>
-        <div style={{fontSize:13,color:"var(--sub)",marginTop:12}}>8 questions · 120 seconds · Speed matters</div>
+        <div style={{fontSize:100,fontWeight:900,lineHeight:1,color:"var(--orange)",animation:"popIn .4s ease"}}>{countdown===0?"GO!":countdown}</div>
+        <div style={{fontSize:15,color:"var(--sub)",marginTop:16,fontWeight:500}}>5 questions · 15 seconds each</div>
       </div>
     </div>
   );
 
-  // ── BATTLE ──
-  if(phase === "battle" && q) return(
+  if(phase==="battle"&&q) return(
     <div style={{minHeight:"100vh",position:"relative"}}>
       {xpToast&&<XPToast pts={xpToast} onDone={()=>setXpToast(null)}/>}
       <Confetti show={confetti}/>
       <BlobBg/>
-      <div style={{position:"relative",zIndex:1,padding:"60px 18px 24px"}}>
-
-        {/* Dual progress + timer bar */}
+      <div style={{position:"relative",zIndex:1,padding:"52px 18px 24px"}}>
+        {/* VS score bar */}
         <Card style={{padding:"12px 16px",marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
             <div style={{textAlign:"center"}}>
-              <div style={{fontSize:9,color:"var(--sub)",fontWeight:700,textTransform:"uppercase"}}>You</div>
-              <div style={{fontSize:20,fontWeight:900,color:"var(--orange)"}}>{myPts}</div>
+              <div style={{fontSize:10,color:"var(--sub)",fontWeight:600}}>YOU</div>
+              <div style={{fontSize:22,fontWeight:900,color:"var(--orange)"}}>{myPts}</div>
             </div>
-            <div style={{flex:1,margin:"0 10px"}}>
-              {/* My bar */}
-              <div style={{height:7,background:"#F0F0F0",borderRadius:4,overflow:"hidden",marginBottom:4}}>
-                <div style={{height:"100%",background:"var(--grad)",borderRadius:4,
-                  width:myPct+"%",transition:"width .5s ease"}}/>
+            <div style={{flex:1,margin:"0 12px"}}>
+              <div style={{height:8,background:"#F0F0F0",borderRadius:4,overflow:"hidden",marginBottom:4}}>
+                <div style={{height:"100%",background:"var(--grad)",borderRadius:4,transition:"width .5s ease",width:Math.min(100,(myPts/750)*100)+"%"}}/>
               </div>
-              {/* Opponent bar */}
-              <div style={{height:7,background:"#F0F0F0",borderRadius:4,overflow:"hidden"}}>
-                <div style={{height:"100%",background:opponent?.color||"#7C3AED",borderRadius:4,
-                  width:opPct+"%",transition:"width .5s ease"}}/>
+              <div style={{height:8,background:"#F0F0F0",borderRadius:4,overflow:"hidden"}}>
+                <div style={{height:"100%",background:opponent.color,borderRadius:4,transition:"width .5s ease",width:Math.min(100,opProgress)+"%"}}/>
               </div>
             </div>
             <div style={{textAlign:"center"}}>
-              <div style={{fontSize:9,color:"var(--sub)",fontWeight:700,textTransform:"uppercase"}}>
-                {isGhost?"👻":""}{opponent?.name?.split(" ")[0]||"Rival"}
-              </div>
-              <div style={{fontSize:20,fontWeight:900,color:opponent?.color||"#7C3AED"}}>{opPts}</div>
+              <div style={{fontSize:10,color:"var(--sub)",fontWeight:600}}>{opponent.name.split(" ")[0].toUpperCase()}</div>
+              <div style={{fontSize:22,fontWeight:900,color:opponent.color}}>{opPts}</div>
             </div>
           </div>
-
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{display:"flex",gap:3}}>
-              {questions.map((_,i)=><div key={i} style={{width:6,height:6,borderRadius:"50%",
-                background:myAnswers[i]?myAnswers[i].correct?"var(--green)":"var(--red)":
-                i===qIdx?"var(--orange)":"#E0E0E0"}}/>)}
+              {questions.map((_,i)=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:myAnswers[i]?myAnswers[i].correct?"var(--green)":"var(--red)":i===qIdx?"var(--orange)":"#E0E0E0"}}/>)}
             </div>
-            <div style={{display:"flex",alignItems:"center",gap:6}}>
-              <div style={{fontSize:11,fontWeight:700,
-                color:timeLeft<20?"var(--red)":"var(--sub)",
-                animation:timeLeft<20?"timerW .6s ease infinite":"none"}}>
-                ⏱ {fmtTime(timeLeft)}
-              </div>
-              <div style={{fontSize:10,color:"var(--sub2)"}}>Q{qIdx+1}/{questions.length}</div>
-            </div>
+            <div style={{fontWeight:700,fontSize:13,color:timeLeft<5?"var(--red)":"var(--sub)",animation:timeLeft<5?"timerW .6s ease infinite":"none"}}>⏱ {timeLeft}s</div>
           </div>
         </Card>
 
-        {/* Question — no Back button */}
         <div key={cardKey} style={{animation:"cardPop .3s ease"}}>
-          <Card style={{padding:"18px 16px",marginBottom:12,
-            border:"2px solid "+(feedback==="correct"?"var(--green)":feedback==="wrong"?"var(--red)":"transparent"),
-            transition:"border-color .2s",animation:feedback==="wrong"?"shake .4s ease":"none"}}>
-            <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
-              <div style={{display:"inline-block",padding:"3px 12px",borderRadius:20,
-                background:"var(--cyan)",color:"#fff",fontWeight:700,fontSize:10}}>{q.tag}</div>
-              {q.diff==="hard"&&<div style={{padding:"3px 8px",borderRadius:20,
-                background:"#FFF5F5",color:"var(--red)",fontWeight:700,fontSize:9}}>🔥 Hard</div>}
-            </div>
-            <div style={{fontSize:15,fontWeight:700,lineHeight:1.5,color:"var(--tx)"}}>{q.q}</div>
+          <Card style={{padding:"20px 18px",marginBottom:12,border:"2px solid "+(feedback==="correct"?"var(--green)":feedback==="wrong"?"var(--red)":"transparent"),transition:"border-color .2s",animation:feedback==="wrong"?"shake .4s ease":"none"}}>
+            <div style={{display:"inline-block",padding:"4px 14px",borderRadius:20,background:"var(--cyan)",color:"#fff",fontWeight:700,fontSize:11,marginBottom:12}}>{q.tag}</div>
+            <div style={{fontSize:17,fontWeight:700,lineHeight:1.5}}>{q.q}</div>
           </Card>
-
-          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+          <div style={{display:"flex",flexDirection:"column",gap:9,marginBottom:12}}>
             {q.opts.map((opt,i)=>{
-              const isC=i===q.ans, isWS=i===selected&&!isC;
+              const isC=i===q.ans,isWS=i===selected&&!isC;
               let bg="#fff",border="#EBEBEB",lBg="#F5F5F5",lC="var(--sub)",tC="var(--tx)";
-              if(feedback){if(isC){bg="#F0FDF4";border="var(--green)";lBg="var(--green)";lC="#fff";tC="var(--green)";}
-                if(isWS){bg="#FFF5F5";border="var(--red)";lBg="var(--red)";lC="#fff";tC="var(--red)";}}
+              if(feedback){if(isC){bg="#F0FDF4";border="var(--green)";lBg="var(--green)";lC="#fff";tC="var(--green)";}if(isWS){bg="#FFF5F5";border="var(--red)";lBg="var(--red)";lC="#fff";tC="var(--red)";}}
               else if(selected===i){bg="#FFF0E8";border="var(--orange)";lBg="var(--orange)";lC="#fff";}
               return(
-                <button key={i} onClick={()=>handleSelect(i)} disabled={!!feedback}
-                  style={{width:"100%",padding:"11px 13px",background:bg,border:"1.5px solid "+border,
-                    borderRadius:13,display:"flex",alignItems:"center",gap:10,textAlign:"left",
-                    transition:"all .15s",boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
-                  <div style={{width:28,height:28,borderRadius:7,flexShrink:0,background:lBg,
-                    display:"flex",alignItems:"center",justifyContent:"center",
-                    fontSize:11,fontWeight:700,color:lC}}>
-                    {feedback&&isC?"✓":feedback&&isWS?"✗":labels[i]}
-                  </div>
-                  <span style={{fontSize:13,color:tC,lineHeight:1.4,fontWeight:500}}>{opt}</span>
+                <button key={i} onClick={()=>handleSelect(i)} disabled={!!feedback} style={{width:"100%",padding:"12px 14px",background:bg,border:"1.5px solid "+border,borderRadius:14,display:"flex",alignItems:"center",gap:11,textAlign:"left",transition:"all .2s",boxShadow:"0 1px 6px rgba(0,0,0,.05)"}}>
+                  <div style={{width:30,height:30,borderRadius:8,flexShrink:0,background:lBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:lC}}>{feedback&&isC?"✓":feedback&&isWS?"✗":labels[i]}</div>
+                  <span style={{fontSize:14,color:tC,lineHeight:1.4,fontWeight:500}}>{opt}</span>
                 </button>
               );
             })}
           </div>
-
-          {feedback && (
-            <Card style={{padding:"11px 13px",
-              background:feedback==="correct"?"#F0FDF4":"#FFF9F0",
-              border:"1.5px solid "+(feedback==="correct"?"var(--green)":"var(--amber)"),
-              animation:"fadeUp .3s ease"}}>
+          {feedback&&(
+            <Card style={{padding:"12px 14px",background:feedback==="correct"?"#F0FDF4":"#FFF9F0",border:"1.5px solid "+(feedback==="correct"?"var(--green)":"var(--amber)"),animation:"fadeUp .3s ease"}}>
               <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                <span style={{fontSize:20,flexShrink:0}}>{feedback==="correct"?"🎯":"💡"}</span>
-                <div>
-                  <div style={{fontSize:10,fontWeight:700,
-                    color:feedback==="correct"?"var(--green)":"var(--amber)",marginBottom:2}}>
-                    {feedback==="correct"?"CORRECT! +"+Object.values(myAnswers).slice(-1)[0]?.pts+" pts":"EXPLANATION"}
-                  </div>
-                  <div style={{fontSize:12,color:"var(--tx)",lineHeight:1.5}}>{q.exp}</div>
-                </div>
+                <span style={{fontSize:22,flexShrink:0}}>{feedback==="correct"?"🎯":"💡"}</span>
+                <div><div style={{fontSize:11,fontWeight:700,color:feedback==="correct"?"var(--green)":"var(--amber)",marginBottom:3}}>{feedback==="correct"?"CORRECT! +"+q.pts+" pts":"EXPLANATION"}</div><div style={{fontSize:12,color:"var(--tx)",lineHeight:1.5}}>{q.exp}</div></div>
               </div>
             </Card>
-          )}
-          {!feedback && (
-            <div style={{textAlign:"center",fontSize:11,color:"var(--sub2)",marginTop:6}}>
-              ⚡ Tap fast — speed bonus applies!
-            </div>
           )}
         </div>
       </div>
     </div>
   );
 
-  // ── RESULT → BattleCard ──
-  if(phase === "result") return(
-    <BattleCard
-      myPts={myPts} opPts={opPts} opponent={opponent}
-      questions={questions} myAnswers={myAnswers}
-      subject={questions[0]?.subject||"NEET"}
-      uid={uid}
-      onRematch={()=>{
-        setPhase("matchmaking"); setMatchTimer(10); setOpponent(null);
-        setIsGhost(false); setQuestions([]); setQIdx(0);
-        setMyAnswers({}); setMyPts(0); setOpPts(0); setSelected(null); setFeedback(null);
-      }}
-      onHome={()=>{ setPhase("matchmaking"); setMatchTimer(10); }}
-    />
-  );
-
+  if(phase==="result"){
+    const won=myPts>opPts;
+    const diff=Math.abs(myPts-opPts);
+    return(
+      <div style={{minHeight:"100vh",paddingBottom:110,position:"relative"}}>
+        <Confetti show={won}/>
+        <BlobBg/>
+        <div style={{position:"relative",zIndex:1,padding:"52px 18px 0"}}>
+          {/* Result banner */}
+          <Card style={{padding:"28px 20px",marginBottom:16,textAlign:"center",background:won?"linear-gradient(135deg,#F0FDF4,#DCFCE7)":"linear-gradient(135deg,#FFF5F5,#FEE2E2)",border:"2px solid "+(won?"var(--green)":"var(--red)")}}>
+            <div style={{fontSize:56,marginBottom:8}}>{won?"🏆":"😤"}</div>
+            <div style={{fontSize:26,fontWeight:900,color:won?"var(--green)":"var(--red)"}}>{won?"Victory!":"Defeated"}</div>
+            <div style={{fontSize:14,color:"var(--sub)",marginTop:4}}>{won?`You won by ${diff} points!`:`Lost by ${diff} points. Train harder!`}</div>
+          </Card>
+          {/* Score comparison */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+            {[{label:"You",pts:myPts,color:"var(--orange)",emoji:"🎯"},{label:opponent.name,pts:opPts,color:opponent.color,emoji:opponent.emoji}].map((p,i)=>(
+              <Card key={i} style={{padding:"16px",textAlign:"center",border:"2px solid "+(i===0&&won||i===1&&!won?"var(--green)":"var(--border)")}}>
+                <div style={{fontSize:28,marginBottom:4}}>{p.emoji}</div>
+                <div style={{fontSize:11,color:"var(--sub)",fontWeight:600,marginBottom:4}}>{p.label}</div>
+                <div style={{fontSize:28,fontWeight:900,color:p.color}}>{p.pts}</div>
+                <div style={{fontSize:11,color:"var(--sub)"}}>points</div>
+                {((i===0&&won)||(i===1&&!won))&&<div style={{marginTop:6,fontSize:11,fontWeight:700,color:"var(--green)"}}>👑 Winner</div>}
+              </Card>
+            ))}
+          </div>
+          {won&&<Card style={{padding:"14px 16px",marginBottom:16,background:"linear-gradient(135deg,#FFF3E0,#FFE4F3)",border:"1.5px solid #FFD0B0",textAlign:"center"}}>
+            <div style={{fontSize:20,fontWeight:800,color:"var(--orange)"}}>+{won?150:50} pts · {won?"↑ Rank up! ":"↓ Keep training "}{won?"🚀":"💪"}</div>
+          </Card>}
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            <GradBtn onClick={()=>{setPhase("lobby");setOpponent(null);}} style={{width:"100%"}}>⚔️ Challenge Again</GradBtn>
+            <GradBtn onClick={()=>{setPhase("lobby");setOpponent(null);}} outlined style={{width:"100%"}}>🏠 Back to Lobby</GradBtn>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return null;
 }
+
 /* ══════════════════════════════════════
    MESSAGES SCREEN
 ══════════════════════════════════════ */
@@ -992,53 +764,32 @@ ${transcript}`
 /* ══════════════════════════════════════
    RANKINGS
 ══════════════════════════════════════ */
-function RanksScreen({currentUid, userStats}){
-  const [data, setData]       = useState([]);
-  const [myEntry, setMyEntry] = useState(null);
-  const [loading, setLoading] = useState(true);
+function RanksScreen({currentUid}){
+  const [data,setData]=useState([]);
+  const [loading,setLoading]=useState(true);
 
   useEffect(()=>{
-    // Step 1: Always build a populated list immediately from LB_DATA — never blank
-    const base = LB_DATA.map((r,i)=>({...r, rank:i+1, isMe: r.name==="You"}));
-    setData(base);
-    setLoading(false);
-
-    // Step 2: Try to get the real user's stats and inject them into the list
-    if(!currentUid) return;
-    getUserStats(currentUid).then(stats=>{
-      if(!stats || stats.totalPoints === 0) return; // no data yet
-      const me = {
-        name:   "You",
-        init:   "ME",
-        emoji:  "🎯",
-        score:  stats.totalPoints,
-        rank:   stats.rank || 7,
-        prev:   null,
-        streak: stats.streak || 0,
-        color:  "var(--pink)",
-        isMe:   true,
-      };
-      setMyEntry(me);
-      // Merge user into base list at their rank position, replace the placeholder "You"
-      setData(prev => {
-        const without = prev.filter(r => !r.isMe);
-        const inserted = [...without, me].sort((a,b)=>b.score-a.score)
-          .map((r,i)=>({...r, rank:i+1}));
-        return inserted;
-      });
-    }).catch(()=>{}); // silently ignore — we already have the fallback
+    getLeaderboard(currentUid).then(rows=>{
+      if(rows && rows.length>0) setData(rows);
+      else setData(LB_DATA.map((r,i)=>({...r,rank:i+1,isMe:false})));
+      setLoading(false);
+    }).catch(e=>{
+      console.log("Leaderboard:",e);
+      setData(LB_DATA.map((r,i)=>({...r,rank:i+1,isMe:false})));
+      setLoading(false);
+    });
   },[currentUid]); // eslint-disable-line
+  const top3=data.slice(0,3);
+  const rest=data.slice(3);
+  // Safe podium - only render if we have enough data
+  const podiumOrder=[top3[1],top3[0],top3[2]];
+  const podiumH=[80,110,65];
+  const podiumBg=["#E8E8E8","var(--grad)","#FF8C00"];
+  const podiumBadge=["🥈","🥇","🥉"];
 
-  const top3        = data.slice(0,3);
-  const rest        = data.slice(3);
-  const podiumOrder = [top3[1]||null, top3[0]||null, top3[2]||null];
-  const podiumH     = [80,110,65];
-  const podiumBg    = ["#C0C0C0","var(--grad)","#CD7F32"];
-  const podiumBadge = ["🥈","🥇","🥉"];
-
+  // Show loading or empty state
   if(loading) return(
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",
-      justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)"}}>
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"var(--bg)"}}>
       <div style={{fontSize:48}}>🏆</div>
       <div style={{fontSize:16,fontWeight:700,color:"var(--tx)"}}>Loading Rankings...</div>
     </div>
@@ -1056,7 +807,7 @@ function RanksScreen({currentUid, userStats}){
           </div>
         </div>
         <div style={{padding:"0 18px"}}>
-          {top3.length>=3&&top3.every(p=>p)&&(
+          {top3.length>=3&&(
           <div style={{display:"flex",justifyContent:"center",alignItems:"flex-end",gap:16,marginTop:24,marginBottom:16}}>
             {podiumOrder.map((p,i)=>p&&(
               <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8}}>
@@ -1066,53 +817,30 @@ function RanksScreen({currentUid, userStats}){
                 </div>
                 <div style={{textAlign:"center"}}>
                   <div style={{fontSize:13,fontWeight:700}}>{p.name.split(" ")[0]}</div>
-                  <div style={{fontSize:11,color:"var(--sub)"}}>{(p.score||p.totalPoints||0).toLocaleString()} pts</div>
+                  <div style={{fontSize:11,color:"var(--sub)"}}>{p.score.toLocaleString()} pts</div>
                 </div>
                 <div style={{width:90,height:podiumH[i],borderRadius:"12px 12px 0 0",background:podiumBg[i],display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:20,color:"#fff",boxShadow:"0 4px 16px rgba(0,0,0,.12)"}}>#{i===0?2:i===1?1:3}</div>
               </div>
             ))}
           </div>
           )}
-          {data.length === 0 && (
-            <div style={{textAlign:"center",padding:"40px 20px",color:"var(--sub)"}}>
-              <div style={{fontSize:40,marginBottom:12}}>🏆</div>
-              <div style={{fontSize:15,fontWeight:700}}>No rankings yet</div>
-              <div style={{fontSize:12,marginTop:6}}>Complete a quiz to appear here!</div>
-            </div>
-          )}
           {rest.map((p,i)=>{
-            if(!p) return null;
-            const isMe = p.isMe || p.name==="You";
-            const moved = (p.prev!=null) ? (p.prev-p.rank) : 0;
-            const displayScore = (p.score||p.totalPoints||0).toLocaleString();
-            const rowColor = p.color||"#667EEA";
+            const isMe=p.name==="You";
+            const moved=p.prev-p.rank;
             return(
               <div key={i} style={{position:"relative",marginBottom:10}}>
-                {isMe&&<div style={{position:"absolute",top:-10,left:"50%",
-                  transform:"translateX(-50%)",background:"var(--grad)",
-                  color:"#fff",fontSize:10,fontWeight:700,padding:"2px 10px",
-                  borderRadius:10,zIndex:2,letterSpacing:.5}}>YOU</div>}
-                <Card style={{padding:"14px 16px",
-                  border:isMe?"2px solid var(--orange)":"none",
-                  background:isMe?"#FFF5F0":"#fff"}}>
+                {isMe&&<div style={{position:"absolute",top:-10,left:"50%",transform:"translateX(-50%)",background:"var(--grad)",color:"#fff",fontSize:10,fontWeight:700,padding:"2px 10px",borderRadius:10,zIndex:2,letterSpacing:.5}}>YOU</div>}
+                <Card style={{padding:"14px 16px",border:isMe?"2px solid var(--orange)":"none",background:isMe?"#FFF5F0":"#fff"}}>
                   <div style={{display:"flex",alignItems:"center",gap:12}}>
-                    <div style={{width:36,height:36,borderRadius:10,background:"var(--grad)",
-                      display:"flex",alignItems:"center",justifyContent:"center",
-                      color:"#fff",fontWeight:800,fontSize:13,flexShrink:0}}>#{p.rank}</div>
-                    <div style={{width:44,height:44,borderRadius:"50%",
-                      background:rowColor+"22",border:"2px solid "+rowColor,
-                      display:"flex",alignItems:"center",justifyContent:"center",
-                      fontSize:22,flexShrink:0}}>{p.emoji||"🧠"}</div>
+                    <div style={{width:36,height:36,borderRadius:10,background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:13,flexShrink:0}}>#{p.rank}</div>
+                    <div style={{width:44,height:44,borderRadius:"50%",background:p.color+"33",border:"2px solid "+p.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{p.emoji}</div>
                     <div style={{flex:1}}>
                       <div style={{fontSize:15,fontWeight:700}}>{p.name}</div>
-                      <div style={{fontSize:11,color:"var(--sub)"}}>🔥 {p.streak||0} day streak</div>
+                      <div style={{fontSize:11,color:"var(--sub)"}}>🔥 {p.streak} day streak</div>
                     </div>
                     <div style={{textAlign:"right"}}>
-                      <div style={{fontSize:20,fontWeight:800}}>{displayScore}</div>
-                      <div style={{fontSize:11,fontWeight:600,
-                        color:moved>0?"var(--green)":moved<0?"var(--red)":"var(--sub)"}}>
-                        {moved>0?"↗ +"+moved:moved<0?"↘ "+moved:"—"}
-                      </div>
+                      <div style={{fontSize:20,fontWeight:800}}>{p.score.toLocaleString()}</div>
+                      <div style={{fontSize:11,fontWeight:600,color:moved>0?"var(--green)":moved<0?"var(--red)":"var(--sub)"}}>{moved>0?"↗ +"+moved:moved<0?"↘ "+moved:"—"}</div>
                     </div>
                   </div>
                 </Card>
@@ -1142,11 +870,11 @@ function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFey
   ];
   return(
     <div style={{minHeight:"100vh",paddingBottom:110,position:"relative"}}>
-      {showPaywallProfile&&<PaywallModal onClose={()=>setShowPaywallProfile(false)} onSuccess={()=>setShowPaywallProfile(false)}/>}
+      {showPaywallProfile&&<PaywallCard onClose={()=>setShowPaywallProfile(false)} onUpgrade={()=>{localStorage.setItem("bb_premium",JSON.stringify(true));setShowPaywallProfile(false);alert("Premium activated! Welcome to Pro 🎉");}}/>}
       {showKB&&<KBModal kb={kb||[]} onAdd={q=>{addQuestion&&addQuestion(q);}} onClose={()=>setShowKB(false)}/>}
       <BlobBg/>
       <div style={{position:"relative",zIndex:1,padding:"52px 18px 0"}}>
-        <div style={{fontSize:30,fontWeight:900,color:"var(--orange)",letterSpacing:-0.5,marginBottom:20}}>RankBattle</div>
+        <div style={{fontSize:30,fontWeight:900,color:"var(--orange)",letterSpacing:-0.5,marginBottom:20}}>BrainBattle</div>
         <Card style={{padding:"20px 18px",marginBottom:16}}>
           <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:16}}>
             <div style={{width:72,height:72,borderRadius:"50%",background:"var(--grad)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:34,flexShrink:0,boxShadow:"0 4px 16px rgba(233,30,140,.3)"}}>🎯</div>
@@ -1180,60 +908,14 @@ function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFey
           </div>
         </Card>
 
-        {/* Launch Week / Pro Banner */}
-        {LAUNCH_WEEK_ACTIVE ? (
-          <div style={{background:"linear-gradient(135deg,#667EEA,#764BA2)",borderRadius:20,
-            padding:"16px 18px",marginBottom:12,display:"flex",alignItems:"center",gap:14,
-            boxShadow:"0 6px 20px rgba(102,126,234,.35)"}}>
-            <div style={{fontSize:32}}>🔥</div>
-            <div style={{flex:1}}>
-              <div style={{fontSize:14,fontWeight:900,color:"#FFD166"}}>Pro — UNLOCKED 🎉</div>
-              <div style={{fontSize:11,color:"rgba(255,255,255,.85)",marginTop:2}}>
-                Unlocked: NEET 2026 Special Launch Week · {getLaunchDaysLeft()} days remaining
-              </div>
-            </div>
-            <div style={{background:"rgba(255,255,255,.2)",borderRadius:10,padding:"4px 8px"}}>
-              <div style={{fontSize:9,color:"#fff",fontWeight:700}}>FREE</div>
-            </div>
+        {/* Upgrade Button */}
+        <div onClick={()=>setShowPaywallProfile(true)} style={{background:"linear-gradient(135deg,#667EEA,#764BA2)",borderRadius:20,padding:"16px 18px",marginBottom:12,cursor:"pointer",display:"flex",alignItems:"center",gap:14,boxShadow:"0 6px 20px rgba(102,126,234,.35)"}}>
+          <div style={{fontSize:32}}>⚡</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:15,fontWeight:900,color:"#fff"}}>Upgrade to Pro</div>
+            <div style={{fontSize:12,color:"rgba(255,255,255,.8)",marginTop:2}}>Unlimited Dr. Neuron · Full Analytics</div>
           </div>
-        ) : (
-          <div onClick={()=>setShowPaywallProfile(true)} style={{background:"linear-gradient(135deg,#667EEA,#764BA2)",borderRadius:20,
-            padding:"16px 18px",marginBottom:12,cursor:"pointer",display:"flex",alignItems:"center",gap:14,
-            boxShadow:"0 6px 20px rgba(102,126,234,.35)"}}>
-            <div style={{fontSize:32}}>⚡</div>
-            <div style={{flex:1}}>
-              <div style={{fontSize:15,fontWeight:900,color:"#fff"}}>Upgrade to Pro</div>
-              <div style={{fontSize:12,color:"rgba(255,255,255,.8)",marginTop:2}}>Unlimited Dr. Neuron · Full Analytics</div>
-            </div>
-            <div style={{fontSize:20,color:"rgba(255,255,255,.8)"}}>›</div>
-          </div>
-        )}
-
-        {/* Referral Link Card */}
-        <div style={{background:"linear-gradient(135deg,#FFF9E6,#FFFDE7)",borderRadius:20,
-          padding:"16px 18px",marginBottom:12,border:"1.5px solid #FDE68A",
-          boxShadow:"0 4px 12px rgba(251,191,36,.2)"}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
-            <div style={{fontSize:28}}>🔗</div>
-            <div>
-              <div style={{fontSize:14,fontWeight:800,color:"#92400E"}}>Invite Friends → Unlock Analysis</div>
-              <div style={{fontSize:11,color:"#B45309"}}>3 invites unlock Rank Predictor + Heatmap</div>
-            </div>
-          </div>
-          <div style={{background:"rgba(255,255,255,.8)",borderRadius:10,padding:"8px 12px",
-            fontSize:11,color:"#92400E",fontWeight:600,wordBreak:"break-all",marginBottom:10}}>
-            {getReferralLink(userEmail)}
-          </div>
-          <button onClick={()=>{
-            const link = getReferralLink(userEmail);
-            const txt = "Join me on RankBattle — the fastest way to crack NEET 2026! Use my invite link: "+link;
-            if(navigator.share){ navigator.share({title:"RankBattle",text:txt,url:link}).catch(()=>{}); }
-            else { window.open("https://api.whatsapp.com/send?text="+encodeURIComponent(txt),"_blank"); }
-          }} style={{width:"100%",padding:"10px",background:"#25D366",border:"none",borderRadius:12,
-            color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer",
-            display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-            <span>📲</span> Share Invite on WhatsApp
-          </button>
+          <div style={{fontSize:20,color:"rgba(255,255,255,.8)"}}>›</div>
         </div>
 
         {/* Knowledge Base card */}
@@ -1274,17 +956,10 @@ function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFey
 
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}><span style={{fontSize:22}}>🏆</span><span style={{fontSize:22,fontWeight:800}}>Achievements</span></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:20}}>
-          {[
-            { icon:"🏆", label:"First Victory",  desc:"Complete your first quiz",      color:"#FF9500", bg:"#FFF3E0", earned:(userStats?.quizzesDone||0)>=1 },
-            { icon:"🎯", label:"Sharp Shooter",  desc:"10 correct in a row",           color:"#22C55E", bg:"#F0FDF4", earned:(userStats?.accuracy||0)>=80&&(userStats?.totalQs||0)>=10 },
-            { icon:"⚡", label:"Speed Demon",    desc:"50 questions attempted",        color:"#00B4D8", bg:"#E0F7FF", earned:(userStats?.totalQs||0)>=50 },
-            { icon:"🧠", label:"Genius",         desc:"Score 90%+ accuracy",           color:"#7C3AED", bg:"#EDE9FE", earned:(userStats?.accuracy||0)>=90&&(userStats?.quizzesDone||0)>=3 },
-            { icon:"⭐", label:"Rising Star",    desc:"Reach top 10 leaderboard",      color:"#E91E8C", bg:"#FFE4F3", earned:(userStats?.rank||999)<=10 },
-            { icon:"👑", label:"Legendary",      desc:"30-day streak",                 color:"#FF6B35", bg:"#FFF0E8", earned:(userStats?.streak||0)>=30 },
-          ].map((a,i)=>(
-            <Card key={i} style={{padding:"14px 10px",position:"relative",opacity:a.earned?1:0.6}}>
+          {ACHIEVEMENTS.map((a,i)=>(
+            <Card key={i} style={{padding:"14px 10px",position:"relative"}}>
               {a.earned&&<div style={{position:"absolute",top:8,right:8,width:20,height:20,borderRadius:"50%",background:"var(--green)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"#fff",fontWeight:700}}>✓</div>}
-              <div style={{width:46,height:46,borderRadius:14,background:a.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,marginBottom:8,filter:a.earned?"none":"grayscale(1)"}}>{a.icon}</div>
+              <div style={{width:46,height:46,borderRadius:14,background:a.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,marginBottom:8}}>{a.icon}</div>
               <div style={{fontSize:12,fontWeight:700,marginBottom:3}}>{a.label}</div>
               <div style={{fontSize:10,color:"var(--sub)",lineHeight:1.3}}>{a.desc}</div>
             </Card>
@@ -1309,38 +984,6 @@ function ProfileScreen({score,rank,streak,accuracy,xp,level,kb,addQuestion,onFey
           </div>
           <div style={{height:8,background:"#E9D5FF",borderRadius:4}}><div style={{height:"100%",width:((xp/2000)*100)+"%",background:"linear-gradient(90deg,#7C3AED,#E91E8C)",borderRadius:4}}/></div>
         </Card>
-
-        {/* Help & Support */}
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}><span style={{fontSize:22}}>🛟</span><span style={{fontSize:22,fontWeight:800}}>Help & Support</span></div>
-        {[
-          { icon:"🐛", label:"Report a Bug",        desc:"Found something broken? Tell us",  action:()=>{ const uid=userEmail||"unknown"; window.location.href=`mailto:p@rankbattle.in?subject=RankBattle Bug Report - ${uid}&body=Hi Pratul,%0A%0ADescribe the bug:%0A%0ASteps to reproduce:%0A%0ADevice/Browser:%0A`; }},
-          { icon:"💡", label:"Suggest a Feature",   desc:"Have an idea? We'd love to hear it", action:()=>{ window.location.href=`mailto:p@rankbattle.in?subject=RankBattle Feature Request&body=Hi Pratul,%0A%0AMy idea:%0A`; }},
-          { icon:"❓", label:"FAQ / How to Use",    desc:"Quick guide to RankBattle",        action:()=>{ alert("📚 RankBattle Quick Guide\n\n• Home: Start quizzes by subject or chapter\n• Dr. Neuron: Ask any NEET doubt\n• Mock Test: Full 200Q/3hr NEET simulation\n• Progress: Track your weak chapters\n• Ranks: See where you stand globally\n\nFree plan: 3 quizzes + 1 mock/day\nPro: Unlimited everything"); }},
-        ].map((item,i)=>(
-          <Card key={i} onClick={item.action} style={{padding:"14px 16px",marginBottom:10,cursor:"pointer",display:"flex",alignItems:"center",gap:14,border:"1.5px solid #F0EBE0"}}>
-            <div style={{width:44,height:44,borderRadius:14,background:"#F9FAFB",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{item.icon}</div>
-            <div style={{flex:1}}>
-              <div style={{fontSize:14,fontWeight:700}}>{item.label}</div>
-              <div style={{fontSize:11,color:"var(--sub)",marginTop:2}}>{item.desc}</div>
-            </div>
-            <div style={{fontSize:18,color:"var(--sub2)"}}>›</div>
-          </Card>
-        ))}
-        <div style={{textAlign:"center",marginBottom:20,marginTop:8}}>
-          <div style={{fontSize:11,color:"var(--sub2)",marginBottom:6}}>v1.0.0 · A Product of ParmarLabs · Made with ❤️ for NEET 2026</div>
-          <div style={{display:"flex",gap:14,justifyContent:"center",flexWrap:"wrap"}}>
-            {[
-              {label:"Terms & Conditions", text:"By using RankBattle, you agree to use the platform solely for educational purposes. All content is AI-generated and intended to supplement NCERT preparation. RankBattle and ParmarLabs reserve the right to modify or discontinue services at any time."},
-              {label:"Privacy Policy",     text:"RankBattle collects only the data necessary to provide our service (Google account name, email, and quiz performance). We do not sell your data to third parties. Your data is stored securely on Firebase and Railway."},
-              {label:"Refund Policy",      text:"All sales for RankBattle digital credits and AI-generated mock tests are final and non-refundable once the generation services have been accessed."},
-            ].map((item,i)=>(
-              <span key={i} onClick={()=>alert("📄 "+item.label+"\n\n"+item.text)}
-                style={{fontSize:10,color:"var(--sub)",textDecoration:"underline",cursor:"pointer",fontWeight:600}}>
-                {item.label}
-              </span>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -1669,68 +1312,6 @@ function FullscreenImage({content, isSvg, alt, onClose}) {
   );
 }
 
-/* ══════════════════════════════════════
-   FEYNMAN DEEP DIVE BUTTON
-   Shown after a wrong answer — calls RAG
-   backend with Feynman Technique prompt
-══════════════════════════════════════ */
-function DeepDiveButton({question}){
-  const [open,setOpen]   = useState(false);
-  const [text,setText]   = useState("");
-  const [loading,setLoading] = useState(false);
-
-  const fetchDeepDive = async () => {
-    if(text) { setOpen(true); return; }
-    setOpen(true);
-    setLoading(true);
-    const concept = question.tag || question.chapter || question.subject || "this concept";
-    const prompt  = `Explain the following concept using the Feynman Technique: ${concept}. Use simple analogies suitable for a beginner (12-year-old). Keep it under 150 words. Make it memorable with one vivid analogy. Then in one sentence, connect it back to the NEET exam context.`;
-    let full = "";
-    try{
-      const res = await fetch(`${RAG_URL}/doubt`,{
-        method:"POST",
-        headers:{"Content-Type":"application/json","X-App-Token":APP_TOKEN()},
-        body:JSON.stringify({question:prompt, history:[]}),
-      });
-      const reader = res.body.getReader();
-      const dec    = new TextDecoder();
-      while(true){
-        const {done,value} = await reader.read();
-        if(done) break;
-        for(const line of dec.decode(value,{stream:true}).split("\n")){
-          if(!line.startsWith("data: ")) continue;
-          try{
-            const evt = JSON.parse(line.slice(6));
-            if(evt.type==="token"){ full+=evt.text; setText(full); }
-          }catch(e){}
-        }
-      }
-    }catch(e){ setText("⚠️ Could not load Deep Dive. Check your connection."); }
-    setLoading(false);
-  };
-
-  return(
-    <div style={{marginTop:10}}>
-      <button onClick={fetchDeepDive}
-        style={{padding:"7px 14px",background:"linear-gradient(135deg,#EDE9FE,#FDF4FF)",border:"1.5px solid #C4B5FD",borderRadius:12,fontSize:11,fontWeight:800,color:"#7C3AED",cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-        🧠 Feynman's Deep Dive
-      </button>
-      {open&&(
-        <div style={{marginTop:8,padding:"12px 14px",background:"#F9F7FF",borderRadius:14,border:"1.5px solid #EDE9FE",animation:"fadeUp .3s ease"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-            <div style={{fontSize:11,fontWeight:800,color:"#7C3AED"}}>🧠 Feynman's Deep Dive</div>
-            <button onClick={()=>setOpen(false)} style={{background:"transparent",border:"none",fontSize:14,color:"#9CA3AF",cursor:"pointer"}}>✕</button>
-          </div>
-          {loading
-            ? <div style={{fontSize:12,color:"#9CA3AF",fontStyle:"italic"}}>Simplifying for you…</div>
-            : <div style={{fontSize:12,color:"var(--tx)",lineHeight:1.7,whiteSpace:"pre-wrap"}}>{text}</div>
-          }
-        </div>
-      )}
-    </div>
-  );
-}
-
 function QuizScreen({questions,onFinish}){
   const [qIdx,setQIdx]=useState(0);
   const [answers,setAnswers]=useState({});
@@ -1842,11 +1423,7 @@ function QuizScreen({questions,onFinish}){
             <Card style={{padding:"12px 14px",background:feedback==="correct"?"#F0FDF4":"#FFF9F0",border:"1.5px solid "+(feedback==="correct"?"var(--green)":"var(--amber)"),animation:"fadeUp .3s ease"}}>
               <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
                 <span style={{fontSize:22,flexShrink:0}}>{feedback==="correct"?"🎯":"💡"}</span>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:11,fontWeight:700,color:feedback==="correct"?"var(--green)":"var(--amber)",marginBottom:3}}>{feedback==="correct"?"CORRECT! +"+q.pts+" pts":"EXPLANATION"}</div>
-                  <div style={{fontSize:12,color:"var(--tx)",lineHeight:1.5}}>{q.exp}</div>
-                  {feedback==="wrong"&&<DeepDiveButton question={q}/>}
-                </div>
+                <div><div style={{fontSize:11,fontWeight:700,color:feedback==="correct"?"var(--green)":"var(--amber)",marginBottom:3}}>{feedback==="correct"?"CORRECT! +"+q.pts+" pts":"EXPLANATION"}</div><div style={{fontSize:12,color:"var(--tx)",lineHeight:1.5}}>{q.exp}</div></div>
               </div>
             </Card>
           )}
@@ -2052,9 +1629,141 @@ function ResultsScreen({result,questions,onHome,onRetry}){
 /* ══════════════════════════════════════
    FEYNMAN AI TUTOR
 ══════════════════════════════════════ */
-/* FeynmanTutor removed — merged into DoubtScreen */
+const FEYNMAN_SYSTEM=`You are a master explainer who channels Richard Feynman's ability to break complex ideas into simple, intuitive truths.
+Your goal is to help the user deeply understand any topic using the Feynman Learning Loop:
+• Simplify → Identify gaps → Question assumptions → Refine understanding → Apply the concept → Compress into a teachable insight.
 
+Follow this exact output structure:
+**Step 1 — Simple Explanation:** Explain like the student is 10 years old. Use one vivid analogy. No jargon.
+**Step 2 — Confusion Check:** List 2–3 common misconceptions students have about this topic.
+**Step 3 — Refinement Cycle:** Give a slightly deeper explanation that adds one layer of physics intuition. Still use analogies.
+**Step 4 — Understanding Challenge:** Ask 3 targeted questions the student must answer to prove they understood.
+**Step 5 — Teaching Snapshot:** Write a 3-sentence "explain it to a friend" version the student can memorize.
 
+Rules:
+- Use analogies in every explanation
+- Define every technical term simply before using it
+- Each refinement must be clearer and more intuitive than the last
+- Prioritize understanding over recall
+- Keep responses focused and mobile-friendly (no very long paragraphs)`;
+
+function FeynmanTutor({onBack}){
+  const [msgs,setMsgs]=useState([
+    {role:"assistant",text:"👋 Hi! I'm your Feynman Tutor — I'll teach you anything using simple stories, analogies and questions.\n\n**What topic do you want to master?** And how well do you understand it right now?\n\n*(Example: \"Torque\" — I know nothing / I've heard of it / I understand basics)*"}
+  ]);
+  const [input,setInput]=useState("");
+  const [loading,setLoading]=useState(false);
+  const bottomRef=useRef(null);
+  const historyRef=useRef([]);
+
+  useEffect(()=>{if(bottomRef.current)bottomRef.current.scrollIntoView({behavior:"smooth"});},[msgs,loading]);
+
+  const send=async()=>{
+    const text=input.trim();
+    if(!text||loading) return;
+    setInput("");
+    const userMsg={role:"user",text};
+    setMsgs(m=>[...m,userMsg]);
+    historyRef.current=[...historyRef.current,{role:"user",content:text}];
+    setLoading(true);
+    try{
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:1000,
+          system:FEYNMAN_SYSTEM,
+          messages:historyRef.current
+        })
+      });
+      const data=await resp.json();
+      const reply=data.content?.find(b=>b.type==="text")?.text||"Sorry, something went wrong. Please try again.";
+      historyRef.current=[...historyRef.current,{role:"assistant",content:reply}];
+      setMsgs(m=>[...m,{role:"assistant",text:reply}]);
+    }catch(e){
+      setMsgs(m=>[...m,{role:"assistant",text:"⚠️ Connection issue. Check your internet and try again."}]);
+    }
+    setLoading(false);
+  };
+
+  // Render markdown-lite: bold, bullet points
+  const renderText=(txt)=>{
+    return txt.split("\n").map((line,i)=>{
+      const bold=line.replace(/\*\*(.+?)\*\*/g,(_,w)=>`<strong>${w}</strong>`);
+      const isBullet=line.trim().startsWith("•")||line.trim().startsWith("-");
+      return <div key={i} style={{marginBottom:isBullet?3:6,paddingLeft:isBullet?8:0,fontSize:13,lineHeight:1.6,color:"var(--tx)"}} dangerouslySetInnerHTML={{__html:bold||"&nbsp;"}}/>;
+    });
+  };
+
+  const suggestions=["Explain Torque simply","What is Angular Momentum?","Why does a spinning top not fall?","Teach me MOI from scratch"];
+
+  return(
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",background:"#F7F8FC"}}>
+      {/* Header */}
+      <div style={{background:"linear-gradient(135deg,#7C3AED,#E91E8C)",padding:"52px 16px 14px",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <button onClick={onBack} style={{background:"rgba(255,255,255,.2)",border:"none",borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16}}>←</button>
+          <div style={{flex:1}}>
+            <div style={{fontSize:18,fontWeight:800,color:"#fff"}}>🧠 Feynman Tutor</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,.8)"}}>Learn anything — deeply, intuitively</div>
+          </div>
+          <div style={{background:"rgba(255,255,255,.2)",borderRadius:10,padding:"4px 10px"}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#fff"}}>Powered by Claude</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div style={{flex:1,overflowY:"auto",padding:"14px 16px 140px"}}>
+        {/* Quick suggestions */}
+        {msgs.length<=1&&(
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--sub)",marginBottom:8,textAlign:"center",letterSpacing:.5}}>TRY ASKING</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:7,justifyContent:"center"}}>
+              {suggestions.map((s,i)=>(
+                <button key={i} onClick={()=>{setInput(s);}} style={{padding:"7px 13px",borderRadius:20,border:"1.5px solid #C4B5FD",background:"#EDE9FE",color:"#7C3AED",fontSize:12,fontWeight:600}}>{s}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {msgs.map((msg,i)=>{
+          const isMe=msg.role==="user";
+          return(
+            <div key={i} style={{display:"flex",justifyContent:isMe?"flex-end":"flex-start",marginBottom:12,animation:"msgIn .25s ease"}}>
+              {!isMe&&<div style={{width:32,height:32,borderRadius:"50%",background:"linear-gradient(135deg,#7C3AED,#E91E8C)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,marginRight:8,alignSelf:"flex-end"}}>🧠</div>}
+              <div style={{maxWidth:"80%",padding:"11px 14px",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",background:isMe?"linear-gradient(135deg,#7C3AED,#E91E8C)":"#fff",boxShadow:isMe?"0 2px 10px rgba(124,58,237,.25)":"0 1px 8px rgba(0,0,0,.07)"}}>
+                {isMe?<div style={{fontSize:13,color:"#fff",lineHeight:1.5}}>{msg.text}</div>:renderText(msg.text)}
+              </div>
+            </div>
+          );
+        })}
+
+        {loading&&(
+          <div style={{display:"flex",alignItems:"flex-end",gap:8,marginBottom:12}}>
+            <div style={{width:32,height:32,borderRadius:"50%",background:"linear-gradient(135deg,#7C3AED,#E91E8C)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🧠</div>
+            <div style={{padding:"12px 16px",background:"#fff",borderRadius:"18px 18px 18px 4px",boxShadow:"0 1px 8px rgba(0,0,0,.07)"}}>
+              <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                {[0,.2,.4].map(d=><div key={d} style={{width:7,height:7,borderRadius:"50%",background:"#C4B5FD",animation:`dotP 1.1s ${d}s ease infinite`}}/>)}
+                <span style={{fontSize:11,color:"var(--sub)",marginLeft:4}}>Feynman is thinking…</span>
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef}/>
+      </div>
+
+      {/* Input */}
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"min(430px,100vw)",padding:"10px 16px 28px",background:"rgba(247,248,252,.97)",borderTop:"1px solid var(--border)",zIndex:20,backdropFilter:"blur(8px)"}}>
+        <div style={{display:"flex",gap:10,alignItems:"center"}}>
+          <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} placeholder="Ask anything — Torque, MOI, Waves…" style={{flex:1,padding:"11px 16px",borderRadius:22,border:"1.5px solid #C4B5FD",background:"#fff",fontSize:13,fontFamily:"var(--font)",outline:"none",color:"var(--tx)"}}/>
+          <button onClick={send} disabled={loading||!input.trim()} style={{width:42,height:42,borderRadius:"50%",background:loading||!input.trim()?"#E9D5FF":"linear-gradient(135deg,#7C3AED,#E91E8C)",border:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0,boxShadow:loading?"none":"0 3px 12px rgba(124,58,237,.35)",transition:"all .2s"}}>➤</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ══════════════════════════════════════
    KNOWLEDGE BASE UPDATER (in Profile)
@@ -2400,25 +2109,14 @@ function NeetMockScreen({onFinish, onBack}) {
             {isReview ? "🔖 Marked" : "🔖 Mark Review"}
           </button>
           <button onClick={() => {
-            const sections = Object.keys(SECTIONS);
-            const isLastSection = sections.indexOf(currentSection) === sections.length - 1;
-            const isLastQuestion = currentIdx === currentQs.length - 1;
-            if (!isLastQuestion) {
-              setCurrentIdx(i => i + 1);
-            } else if (!isLastSection) {
-              const nextSection = sections[sections.indexOf(currentSection) + 1];
-              setCurrentSection(nextSection);
-              setCurrentIdx(0);
-            } else {
-              // Last question of last section — show submit confirm
-              setShowSubmitConfirm(true);
+            if (currentIdx < currentQs.length - 1) setCurrentIdx(i => i+1);
+            else {
+              const sections = Object.keys(SECTIONS);
+              const nextSection = sections[sections.indexOf(currentSection)+1];
+              if (nextSection) { setCurrentSection(nextSection); setCurrentIdx(0); }
             }
-          }} style={{flex:2,padding:"12px",
-            background: (currentIdx === currentQs.length-1 && Object.keys(SECTIONS).indexOf(currentSection) === Object.keys(SECTIONS).length-1) ? "#EF4444" : "#1E1B4B",
-            border:"none",borderRadius:12,color:"#fff",fontWeight:700,fontSize:13}}>
-            {(currentIdx === currentQs.length-1 && Object.keys(SECTIONS).indexOf(currentSection) === Object.keys(SECTIONS).length-1)
-              ? "Submit Test ✓"
-              : "Next →"}
+          }} style={{flex:2,padding:"12px",background:"#1E1B4B",border:"none",borderRadius:12,color:"#fff",fontWeight:700,fontSize:13}}>
+            Next →
           </button>
         </div>
 
@@ -2679,7 +2377,7 @@ function ChapterSelectScreen({subject, onChapter, onBack}) {
 /* ══════════════════════════════════════
    DASHBOARD SCREEN
 ══════════════════════════════════════ */
-function DashboardScreen({score,rank,streak,accuracy,userStats,uid,onBack,referralCount=0}){
+function DashboardScreen({score,rank,streak,accuracy,userStats,uid,onBack}){
   const [analytics,setAnalytics]=useState(null);
   const [loading,setLoading]=useState(true);
 
@@ -2688,8 +2386,8 @@ function DashboardScreen({score,rank,streak,accuracy,userStats,uid,onBack,referr
       const userId=localStorage.getItem("bb_uid");
       if(userId){
         try{
-          const token=getAppToken();
-          const res=await fetch(`${API_BASE}/user-analytics/${userId}`,{
+          const token=localStorage.getItem("bb_auth_token")||"brainbattle-dev-key";
+          const res=await fetch(`https://brainbattle-rag-production.up.railway.app/user-analytics/${userId}`,{
             headers:{"X-App-Token":token}
           });
           if(res.ok){
@@ -2746,18 +2444,9 @@ function DashboardScreen({score,rank,streak,accuracy,userStats,uid,onBack,referr
               <div style={{fontSize:10,color:"#9CA3AF",fontWeight:700,textTransform:"uppercase"}}>Study Hours</div>
               <div style={{fontSize:24,fontWeight:900,color:"#FF6B6B",marginTop:2}}>{data.total_study_hours}h</div>
             </div>
-            <div style={{background:"#fff",borderRadius:18,padding:"12px 14px",boxShadow:"0 4px 12px rgba(0,0,0,.06)",flex:1,position:"relative",overflow:"hidden"}}>
-              <div style={{fontSize:10,color:"#9CA3AF",fontWeight:700,textTransform:"uppercase"}}>Predicted Rank</div>
-              {referralCount >= 3
-                ? <div style={{fontSize:24,fontWeight:900,color:"#667EEA",marginTop:2}}>#{rank}</div>
-                : <div style={{position:"relative"}}>
-                    <div style={{fontSize:24,fontWeight:900,color:"#667EEA",marginTop:2,filter:"blur(6px)",userSelect:"none"}}>#{Math.floor(Math.random()*5000+1000)}</div>
-                    <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:1}}>
-                      <div style={{fontSize:14}}>🔒</div>
-                      <div style={{fontSize:8,fontWeight:700,color:"#7C3AED",textAlign:"center",lineHeight:1.2}}>{3-referralCount} invite{3-referralCount>1?"s":""} left</div>
-                    </div>
-                  </div>
-              }
+            <div style={{background:"#fff",borderRadius:18,padding:"12px 14px",boxShadow:"0 4px 12px rgba(0,0,0,.06)",flex:1}}>
+              <div style={{fontSize:10,color:"#9CA3AF",fontWeight:700,textTransform:"uppercase"}}>Global Rank</div>
+              <div style={{fontSize:24,fontWeight:900,color:"#667EEA",marginTop:2}}>#{rank}</div>
             </div>
           </div>
         </div>
@@ -2787,19 +2476,9 @@ function DashboardScreen({score,rank,streak,accuracy,userStats,uid,onBack,referr
           })}
         </div>
 
-        {/* Weakness Heatmap — locked until 3 referrals */}
-        <div style={{background:"#fff",borderRadius:24,padding:"16px 18px",marginBottom:16,boxShadow:"0 4px 12px rgba(0,0,0,.06)",animation:"dashFade .3s .1s ease both",position:"relative",overflow:"hidden"}}>
-          {referralCount < 3 && (
-            <div style={{position:"absolute",inset:0,backdropFilter:"blur(4px)",background:"rgba(255,255,255,.7)",
-              zIndex:10,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,borderRadius:24}}>
-              <div style={{fontSize:36}}>🔒</div>
-              <div style={{fontSize:14,fontWeight:800,color:"#1A1A2E",textAlign:"center"}}>Subject Heatmap Locked</div>
-              <div style={{fontSize:12,color:"#6B7280",textAlign:"center",maxWidth:220}}>
-                Invite <strong>{3-referralCount} more friend{3-referralCount>1?"s":""}</strong> who complete a battle to unlock your weakness analysis
-              </div>
-            </div>
-          )}
-          <div style={{fontSize:14,fontWeight:800,color:"#1A1A2E",marginBottom:4}}>🔥 Subject Heatmap</div>
+        {/* Weakness Heatmap */}
+        <div style={{background:"#fff",borderRadius:24,padding:"16px 18px",marginBottom:16,boxShadow:"0 4px 12px rgba(0,0,0,.06)",animation:"dashFade .3s .1s ease both"}}>
+          <div style={{fontSize:14,fontWeight:800,color:"#1A1A2E",marginBottom:4}}>🔥 Weak Areas</div>
           <div style={{fontSize:11,color:"#9CA3AF",fontWeight:600,marginBottom:14}}>Chapters needing most attention</div>
           {data.weak_chapters.map((ch,i)=>{
             const intensity=Math.round((100-ch.accuracy)/100*255);
@@ -2873,18 +2552,13 @@ function LoginScreen({onLogin}){
     setError("");
     try{
       const result = await signInWithGoogle();
+      // Mobile: result is null, redirect happens, onAuthStateChanged fires on return
+      // Desktop: result is the user, call onLogin directly
       if(result) onLogin(result);
-      // null = either redirect is in progress (page will reload)
-      // or user cancelled — just reset loading
-      else setLoading(false);
+      // On mobile - page will redirect, no action needed
     }catch(e){
       console.error("Sign in error:",e);
-      // auth/popup-blocked: popup was blocked by browser
-      if(e.code==="auth/popup-blocked"){
-        setError("⚠️ Popups are blocked. Please allow popups for this site and try again.");
-      } else {
-        setError("Sign-in failed. Please try again.");
-      }
+      setError("Sign-in failed: "+e.message);
       setLoading(false);
     }
   };
@@ -2895,7 +2569,7 @@ function LoginScreen({onLogin}){
 
       {/* Logo */}
       <div style={{fontSize:80,animation:"loginFloat 3s ease infinite",marginBottom:8}}>🧠</div>
-      <div style={{fontSize:32,fontWeight:900,color:"#fff",letterSpacing:-1,marginBottom:4}}>RankBattle</div>
+      <div style={{fontSize:32,fontWeight:900,color:"#fff",letterSpacing:-1,marginBottom:4}}>BrainBattle</div>
       <div style={{fontSize:14,color:"rgba(255,255,255,.7)",fontWeight:600,marginBottom:48}}>NEET 2026 Preparation</div>
 
       {/* Card */}
@@ -2923,13 +2597,154 @@ function LoginScreen({onLogin}){
         <div style={{fontSize:11,color:"rgba(255,255,255,.5)",textAlign:"center",marginTop:16,lineHeight:1.6}}>
           By continuing you agree to our Terms of Service. Your data is safe and private.
         </div>
-        <div style={{fontSize:11,color:"rgba(255,255,255,.5)",textAlign:"center",marginTop:12,lineHeight:1.6,padding:"8px 0"}}>
-          🔗 Referral tracking requires a Google account · Sign in to earn rank analysis unlock
+        <div onPointerUp={()=>onLogin({displayName:"Student",uid:"guest_"+Date.now()},("brainbattle-dev-key"))} style={{color:"rgba(255,255,255,.5)",fontSize:12,textAlign:"center",marginTop:12,cursor:"pointer",textDecoration:"underline"}}>
+          Continue as Guest
         </div>
       </div>
     </div>
   );
 }
+
+/* ══════════════════════════════════════
+   ONBOARDING SLIDER
+══════════════════════════════════════ */
+function OnboardingScreen({onDone}){
+  const [slide,setSlide]=useState(0);
+  const slides=[
+    {emoji:"🧠",bg:"linear-gradient(160deg,#667EEA,#764BA2)",title:"Meet Dr. Neuron",sub:"Your Feynman-style AI tutor",desc:"Ask any NEET doubt and get a vivid, analogy-first explanation — grounded in your NCERT textbook. Not a textbook. A friend who knows everything.",btn:"Next →"},
+    {emoji:"📋",bg:"linear-gradient(160deg,#FF6B6B,#FFB347)",title:"Full NEET Mock Tests",sub:"200 questions · 200 minutes · Real exam feel",desc:"Physics 50 + Chemistry 50 + Biology 100. +4/-1 marking. Question palette. Timer. Rank estimate. Everything you need to be exam-ready.",btn:"Next →"},
+    {emoji:"📊",bg:"linear-gradient(160deg,#51CF66,#38D9A9)",title:"Track Your Progress",sub:"Know exactly where you stand",desc:"See your accuracy by subject, find your weak chapters, and watch your streak grow. Smarter practice, not just more practice.",btn:"Let's Go! 🚀"},
+  ];
+  const s=slides[slide];
+  const next=()=>{
+    if(slide<slides.length-1) setSlide(p=>p+1);
+    else onDone();
+  };
+  return(
+    <div style={{minHeight:"100vh",background:s.bg,display:"flex",flexDirection:"column",fontFamily:"var(--font)",transition:"background .5s ease",userSelect:"none"}}>
+      <style>{`
+        @keyframes obFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-12px) scale(1.05)}}
+        @keyframes obFade{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+      `}</style>
+      <div style={{padding:"52px 20px 0",display:"flex",justifyContent:"flex-end"}}>
+        <div onPointerUp={onDone} style={{background:"rgba(255,255,255,.2)",borderRadius:20,padding:"6px 14px",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>Skip</div>
+      </div>
+      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 32px"}}>
+        <div style={{fontSize:100,animation:"obFloat 3s ease infinite",marginBottom:8}}>{s.emoji}</div>
+        <div key={slide} style={{background:"rgba(255,255,255,0.15)",backdropFilter:"blur(20px)",borderRadius:32,padding:"28px 24px",width:"100%",maxWidth:380,border:"1px solid rgba(255,255,255,0.3)",animation:"obFade .4s ease both"}}>
+          <div style={{fontSize:24,fontWeight:900,color:"#fff",marginBottom:6,textAlign:"center"}}>{s.title}</div>
+          <div style={{fontSize:13,color:"rgba(255,255,255,0.8)",fontWeight:700,textAlign:"center",marginBottom:14}}>{s.sub}</div>
+          <div style={{fontSize:14,color:"rgba(255,255,255,0.9)",lineHeight:1.7,textAlign:"center"}}>{s.desc}</div>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:24}}>
+          {slides.map((_,i)=>(
+            <div key={i} style={{width:i===slide?24:8,height:8,borderRadius:4,background:i===slide?"#fff":"rgba(255,255,255,.4)",transition:"all .3s"}}/>
+          ))}
+        </div>
+      </div>
+      <div style={{padding:"0 32px 48px"}}>
+        <div onPointerUp={next} style={{width:"100%",padding:"18px",background:"#fff",borderRadius:20,fontSize:16,fontWeight:900,cursor:"pointer",color:slide===0?"#667EEA":slide===1?"#FF6B6B":"#51CF66",boxShadow:"0 8px 24px rgba(0,0,0,.2)",textAlign:"center",WebkitTapHighlightColor:"transparent"}}>
+          {s.btn}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════
+   PAYWALL
+══════════════════════════════════════ */
+function PaywallCard({onClose,onUpgrade}){
+  const [loading,setLoading]=React.useState(false);
+
+  const handlePayment=()=>{
+    setLoading(true);
+    // Load Razorpay script dynamically
+    const script=document.createElement("script");
+    script.src="https://checkout.razorpay.com/v1/checkout.js";
+    script.onload=()=>{
+      const options={
+        key:"rzp_live_SdnbrufK0J7IAY",
+        amount:99900, // ₹999 in paise
+        currency:"INR",
+        name:"BrainBattle",
+        description:"Pro Monthly Subscription",
+        image:"https://brainbattle-app-tu58.vercel.app/logo192.png",
+        handler:function(response){
+          // Payment successful
+          localStorage.setItem("bb_premium",JSON.stringify(true));
+          localStorage.setItem("bb_premium_expiry", new Date(Date.now()+30*24*60*60*1000).toISOString());
+          localStorage.setItem("bb_payment_id", response.razorpay_payment_id);
+          setLoading(false);
+          onUpgrade();
+          alert("🎉 Welcome to Pro! All features unlocked.");
+        },
+        prefill:{
+          name:localStorage.getItem("bb_username")||"",
+          email:"",
+        },
+        theme:{color:"#667EEA"},
+        modal:{ondismiss:()=>setLoading(false)},
+      };
+      const rzp=new window.Razorpay(options);
+      rzp.open();
+    };
+    script.onerror=()=>{
+      setLoading(false);
+      alert("Payment gateway failed to load. Please try again.");
+    };
+    document.body.appendChild(script);
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(0,0,0,0.6)",backdropFilter:"blur(8px)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div style={{width:"100%",maxWidth:430,background:"#fff",borderRadius:"32px 32px 0 0",padding:"28px 24px 48px"}}>
+        <div style={{width:40,height:4,background:"#E5E7EB",borderRadius:2,margin:"0 auto 20px"}}/>
+
+        {/* Header */}
+        <div style={{textAlign:"center",marginBottom:20}}>
+          <div style={{fontSize:44,marginBottom:6}}>⚡</div>
+          <div style={{fontSize:22,fontWeight:900,color:"#1A1A2E"}}>Upgrade to Pro</div>
+          <div style={{fontSize:13,color:"#6B7280",marginTop:3,fontWeight:600}}>Unlock your full NEET potential</div>
+        </div>
+
+        {/* Features */}
+        {[
+          ["🧠","Unlimited Dr. Neuron","Ask as many doubts as you want, anytime"],
+          ["📋","Unlimited Mock Tests","Full NEET mocks + mini quizzes, unlimited"],
+          ["📊","Advanced Analytics","Weakness heatmap, rank tracker, study insights"],
+          ["🎯","9,170+ Questions","Complete question bank with PYQs 2020-2025"],
+        ].map(([icon,title,desc],i)=>(
+          <div key={i} style={{display:"flex",gap:12,marginBottom:12,padding:"10px 12px",background:"#F9F7FF",borderRadius:14,border:"1px solid #EDE9FE"}}>
+            <div style={{fontSize:22,flexShrink:0}}>{icon}</div>
+            <div>
+              <div style={{fontSize:13,fontWeight:800,color:"#1A1A2E"}}>{title}</div>
+              <div style={{fontSize:11,color:"#6B7280",marginTop:1,fontWeight:500}}>{desc}</div>
+            </div>
+          </div>
+        ))}
+
+        {/* Pricing */}
+        <div style={{background:"linear-gradient(135deg,#667EEA,#764BA2)",borderRadius:20,padding:"16px",textAlign:"center",marginBottom:14,marginTop:16}}>
+          <div style={{fontSize:11,color:"rgba(255,255,255,.7)",fontWeight:700,letterSpacing:1,textTransform:"uppercase"}}>Limited Launch Offer</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginTop:6}}>
+            <div style={{fontSize:18,color:"rgba(255,255,255,.5)",textDecoration:"line-through",fontWeight:600}}>₹1,499</div>
+            <div style={{fontSize:38,fontWeight:900,color:"#fff"}}>₹999<span style={{fontSize:15,fontWeight:600,opacity:.8}}>/mo</span></div>
+          </div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,.7)",marginTop:4}}>Cancel anytime · Billed monthly · Save 33%</div>
+        </div>
+
+        <div onClick={handlePayment} style={{width:"100%",padding:"16px",background:loading?"#9CA3AF":"linear-gradient(135deg,#667EEA,#764BA2)",border:"none",borderRadius:16,color:"#fff",fontSize:15,fontWeight:900,cursor:loading?"not-allowed":"pointer",boxShadow:"0 8px 24px rgba(102,126,234,.4)",marginBottom:10,textAlign:"center"}}>
+          {loading?"Processing...":"Subscribe Now ₹999/month"}
+        </div>
+        <div onClick={onClose} style={{width:"100%",padding:"10px",textAlign:"center",color:"#9CA3AF",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+          Maybe later
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 /* ══════════════════════════════════════
    ONBOARDING SLIDER
@@ -3032,260 +2847,8 @@ function PaywallCard({onClose,onUpgrade}){
 }
 
 /* ══════════════════════════════════════
-   PAYWALL MODAL  — Doctor Lite
-══════════════════════════════════════ */
-// ── Razorpay helpers ──────────────────────────────────────────────────────
-const RAG_BASE = API_BASE; // alias — use API_BASE for new code
-
-// Load Razorpay checkout script once
-function loadRazorpayScript(){
-  return new Promise(resolve=>{
-    if(window.Razorpay){ resolve(true); return; }
-    const s=document.createElement("script");
-    s.src="https://checkout.razorpay.com/v1/checkout.js";
-    s.onload=()=>resolve(true);
-    s.onerror=()=>resolve(false);
-    document.body.appendChild(s);
-  });
-}
-
-async function createRazorpayOrder(uid){
-  const res=await fetch(`${RAG_BASE}/razorpay/create-order`,{
-    method:"POST",
-    headers:{"Content-Type":"application/json","X-App-Token":localStorage.getItem("bb_auth_token")||"rankbattle-dev-key"},
-    body:JSON.stringify({uid:uid||"guest_"+Date.now(),amount:59900}), // amount in paise
-  });
-  if(!res.ok) throw new Error("Order creation failed");
-  return res.json();
-}
-
-async function verifyRazorpayPayment(payload){
-  const res=await fetch(`${RAG_BASE}/razorpay/verify`,{
-    method:"POST",
-    headers:{"Content-Type":"application/json","X-App-Token":localStorage.getItem("bb_auth_token")||"rankbattle-dev-key"},
-    body:JSON.stringify(payload),
-  });
-  if(!res.ok) throw new Error("Verification failed");
-  return res.json();
-}
-
-// ── PaywallModal ───────────────────────────────────────────────────────────
-function PaywallModal({onClose, reason="", uid=null, onSuccess=null}){
-  const [status, setStatus] = useState("idle"); // idle | loading | success | error
-  const [errMsg, setErrMsg] = useState("");
-
-  const handlePay = async () => {
-    setStatus("loading");
-    setErrMsg("");
-    try{
-      // 1. Load Razorpay SDK
-      const ok = await loadRazorpayScript();
-      if(!ok) throw new Error("Could not load Razorpay. Check your internet.");
-
-      // 2. Create order on backend
-      const order = await createRazorpayOrder(uid);
-
-      // 3. Open Razorpay checkout
-      const options = {
-        key:          order.key_id,
-        amount:       order.amount,
-        currency:     "INR",
-        name:         "Parmar Labs",
-        description:  "RankBattle — Doctor Lite Plan",
-        order_id:     order.order_id,
-        image:        "https://neet.rankbattle.in/logo192.png",
-        prefill:{
-          name:  "NEET Aspirant",
-          email: "",
-          contact: "",
-        },
-        theme:{ color:"#7C3AED" },
-        handler: async (response) => {
-          // 4. Verify payment on backend
-          try{
-            const result = await verifyRazorpayPayment({
-              razorpay_order_id:   response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature:  response.razorpay_signature,
-              uid: uid||"guest_"+Date.now(),
-            });
-            if(result.verified){
-              // 5. Mark premium in localStorage immediately
-              localStorage.setItem("bb_premium","true");
-              // 6. Update Firestore is_premium for logged-in users
-              if(uid && !uid.startsWith("guest_")){
-                try{
-                  const {db} = await import("./firebase_utils");
-                  const {doc,updateDoc} = await import("firebase/firestore");
-                  const userDoc = await (await import("firebase/firestore")).getDoc(
-                    (await import("firebase/firestore")).doc(db,"users",uid)
-                  );
-                  const userData = userDoc.exists() ? userDoc.data() : {};
-                  await updateDoc(doc(db,"users",uid),{
-                    is_premium: true,
-                    premium_since: new Date().toISOString(),
-                    razorpay_payment_id: response.razorpay_payment_id,
-                  });
-                  // 7. Send subscription confirmation email (fire-and-forget)
-                  if(userData.email){
-                    const firstName = (userData.name||"Student").split(" ")[0];
-                    fetch(`${RAG_BASE}/email/subscription`,{
-                      method:"POST",
-                      headers:{"Content-Type":"application/json","X-App-Token":localStorage.getItem("bb_auth_token")||"rankbattle-dev-key"},
-                      body:JSON.stringify({
-                        email:      userData.email,
-                        first_name: firstName,
-                        plan_name:  "Doctor Lite",
-                        amount:     "599",
-                        payment_id: response.razorpay_payment_id,
-                      }),
-                    }).catch(e=>console.warn("Subscription email failed:",e));
-                  }
-                }catch(e){ console.error("Firestore premium update:",e); }
-              }
-              setStatus("success");
-              if(onSuccess) setTimeout(()=>{ onSuccess(); onClose(); }, 2000);
-            } else {
-              throw new Error("Signature mismatch — payment not verified.");
-            }
-          }catch(e){
-            setStatus("error");
-            setErrMsg(e.message||"Verification failed. Contact support.");
-          }
-        },
-        modal:{ ondismiss: ()=>{ if(status==="loading") setStatus("idle"); } },
-      };
-      const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", (resp)=>{
-        setStatus("error");
-        setErrMsg(resp.error?.description||"Payment failed. Please try again.");
-      });
-      rzp.open();
-      setStatus("idle"); // Razorpay popup is open — reset button
-
-    }catch(e){
-      setStatus("error");
-      setErrMsg(e.message||"Something went wrong. Please try again.");
-    }
-  };
-
-  return(
-    <div style={{position:"fixed",inset:0,zIndex:2000,background:"rgba(15,10,30,0.75)",backdropFilter:"blur(12px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 18px"}}>
-      <div style={{width:"100%",maxWidth:400,background:"#fff",borderRadius:32,overflow:"hidden",boxShadow:"0 32px 80px rgba(0,0,0,.35)",animation:"scaleIn .22s ease both"}}>
-
-        {/* Header */}
-        <div style={{background:"linear-gradient(135deg,#667EEA 0%,#764BA2 60%,#E91E8C 100%)",padding:"28px 24px 22px",textAlign:"center",position:"relative"}}>
-          <div style={{position:"absolute",top:12,right:14,width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,.15)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:16}} onClick={onClose}>✕</div>
-          {status==="success"
-            ?<div style={{fontSize:60,marginBottom:8}}>🎉</div>
-            :<div style={{fontSize:44,marginBottom:6}}>👨‍⚕️</div>
-          }
-          <div style={{fontSize:11,fontWeight:800,color:"rgba(255,255,255,.7)",letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>Doctor Lite Plan</div>
-          {status==="success"
-            ?<div style={{fontSize:20,fontWeight:900,color:"#FFD166"}}>You're now Premium! 🚀</div>
-            :<>
-              <div style={{fontSize:22,fontWeight:900,color:"#fff",lineHeight:1.2}}>Unlock Your Full</div>
-              <div style={{fontSize:22,fontWeight:900,color:"#FFD166",lineHeight:1.2}}>NEET Potential</div>
-            </>
-          }
-          {reason&&status!=="success"&&<div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:8,lineHeight:1.5,fontWeight:500}}>{reason}</div>}
-        </div>
-
-        <div style={{padding:"20px 22px 24px"}}>
-          {status!=="success"&&(
-            <>
-              {/* Benefits */}
-              {[
-                {icon:"🧠",title:"Unlimited Dr. Neuron",    desc:"Ask any doubt — instant NCERT answers, no cap"},
-                {icon:"🏆",title:"All-India Rank Tracker",  desc:"See your live rank among NEET 2026 aspirants"},
-                {icon:"📖",title:"Detailed Explanations",    desc:"Step-by-step solutions for every mock test question"},
-              ].map((b,i)=>(
-                <div key={i} style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:10,padding:"10px 12px",background:"linear-gradient(135deg,#F8F7FF,#FFF0F8)",borderRadius:14,border:"1px solid #EDE9FE"}}>
-                  <div style={{fontSize:20,flexShrink:0,marginTop:1}}>{b.icon}</div>
-                  <div>
-                    <div style={{fontSize:13,fontWeight:800,color:"#1A1A2E"}}>{b.title}</div>
-                    <div style={{fontSize:11,color:"#6B7280",marginTop:1,lineHeight:1.4}}>{b.desc}</div>
-                  </div>
-                </div>
-              ))}
-
-              {/* Price */}
-              <div style={{background:"#F9F7FF",border:"2px solid #EDE9FE",borderRadius:20,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",margin:"14px 0"}}>
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:"#9CA3AF",letterSpacing:.5,textTransform:"uppercase"}}>Monthly Plan</div>
-                  <div style={{display:"flex",alignItems:"baseline",gap:8,marginTop:2}}>
-                    <span style={{fontSize:15,color:"#D1D5DB",textDecoration:"line-through",fontWeight:500}}>₹999</span>
-                    <span style={{fontSize:36,fontWeight:900,color:"#7C3AED",lineHeight:1}}>₹599</span>
-                  </div>
-                  <div style={{fontSize:10,color:"#9CA3AF",marginTop:2}}>Save ₹400 · Cancel anytime</div>
-                </div>
-                <div style={{textAlign:"center",background:"linear-gradient(135deg,#667EEA,#764BA2)",borderRadius:14,padding:"8px 12px"}}>
-                  <div style={{fontSize:11,fontWeight:800,color:"#fff"}}>7-Day</div>
-                  <div style={{fontSize:11,fontWeight:800,color:"#FFD166"}}>FREE</div>
-                  <div style={{fontSize:9,color:"rgba(255,255,255,.7)"}}>Trial</div>
-                </div>
-              </div>
-
-              {/* Error message */}
-              {status==="error"&&(
-                <div style={{background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:12,padding:"10px 14px",marginBottom:12,fontSize:12,color:"#DC2626",fontWeight:600}}>
-                  ⚠️ {errMsg}
-                </div>
-              )}
-
-              {/* Pay button */}
-              <button
-                onClick={handlePay}
-                disabled={status==="loading"}
-                style={{width:"100%",padding:"16px",background:status==="loading"?"#E9D5FF":"linear-gradient(135deg,#667EEA,#764BA2)",border:"none",borderRadius:16,color:"#fff",fontSize:16,fontWeight:900,cursor:status==="loading"?"not-allowed":"pointer",boxShadow:status==="loading"?"none":"0 8px 24px rgba(102,126,234,.45)",marginBottom:10,letterSpacing:.3,transition:"all .2s"}}>
-                {status==="loading"?"⏳ Opening Checkout...":"Pay ₹599 · Upgrade Now 🚀"}
-              </button>
-            </>
-          )}
-
-          {status==="success"&&(
-            <div style={{textAlign:"center",padding:"10px 0 6px"}}>
-              <div style={{fontSize:16,fontWeight:700,color:"#1A1A2E",marginBottom:8}}>All limits removed. Enjoy RankBattle Pro!</div>
-              <div style={{fontSize:13,color:"#6B7280"}}>Reloading your session…</div>
-            </div>
-          )}
-
-          <div onClick={onClose} style={{textAlign:"center",color:"#9CA3AF",fontSize:13,fontWeight:600,cursor:"pointer",padding:"4px 0"}}>
-            {status==="success"?"Close":"Maybe later"}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════
    DOUBT SCREEN
 ══════════════════════════════════════ */
-/* ══════════════════════════════════════
-   DR NEURON  +  DEEP DIVE (Feynman)
-   Single unified screen — two modes
-══════════════════════════════════════ */
-const RAG_URL   = API_BASE; // use API_BASE for all new calls
-const APP_TOKEN = getAppToken; // getAppToken defined at top of file
-
-// Feynman system prompt — injected into the first RAG call as context
-const FEYNMAN_CONTEXT = `You are a hybrid of Richard Feynman (master of intuition) and a Top NEET Faculty Member for NEET 2026. Follow this 4-phase teaching loop STRICTLY — ONE PHASE PER REPLY, then STOP and WAIT for the student's response before proceeding.
-
-PHASE 1 — ANALOGICAL INSIGHT: Use a real-life analogy only. No formulas. No NCERT terms. End EXACTLY with: "💡 Does this analogy make sense? Reply YES to continue, or ask me to change it." Then STOP.
-
-PHASE 2 — TECHNICAL BREAKDOWN (only after student replies to Phase 1): Give the formal NCERT definition, SI units, and primary formula. Cite the exact chapter and class. End EXACTLY with: "🔬 Active Recall Check: [one conceptual question]" Then STOP. Do NOT write Phase 3 until the student answers.
-
-PHASE 3 — NEET CATCH (only after student answers Phase 2): Reveal the NTA exam trap or high-yield twist (Rain-Man, River-crossing, Assertion-Reason traps). End with another Active Recall Check. Then STOP.
-
-PHASE 4 — KNOWLEDGE CHECK (only after student answers Phase 3): Give ONE Assertion-Reason MCQ:
-"📝 Assertion (A): [statement]
-Reason (R): [statement]
-(a) Both true, R explains A  (b) Both true, R does NOT explain A  (c) A true R false  (d) A false R true"
-Wait for answer, then explain each option.
-
-RULES: FORBIDDEN to dump multiple phases at once. If student says "okay/next/continue" without answering, repeat the question. Use NCERT only. Keep each reply under 180 words. Use $...$ for inline math.`;
-
 function DrNeuron({mood="idle"}){
   const eyes={
     idle:{l:"M8,10 Q10,8 12,10",r:"M18,10 Q20,8 22,10",mouth:"M11,16 Q15,19 19,16"},
@@ -3295,7 +2858,7 @@ function DrNeuron({mood="idle"}){
   };
   const e=eyes[mood]||eyes.idle;
   return(
-    <svg width="72" height="72" viewBox="0 0 40 40" fill="none">
+    <svg width="80" height="80" viewBox="0 0 40 40" fill="none">
       <ellipse cx="20" cy="22" rx="14" ry="13" fill="#FFF0C2" stroke="#FFD166" strokeWidth="1.5"/>
       <path d="M10,16 Q8,10 12,9 Q13,6 17,7 Q19,4 21,7 Q25,5 27,9 Q31,10 30,16" fill="#FFD166" stroke="#FFB347" strokeWidth="1"/>
       <path d={e.l} stroke="#5C4033" strokeWidth="1.8" strokeLinecap="round" fill="none"/>
@@ -3307,231 +2870,93 @@ function DrNeuron({mood="idle"}){
   );
 }
 
-function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}){
-  const [mode,setMode]     = useState(initialMode); // "doubt" | "feynman"
+const RAG_URL="https://brainbattle-rag-production.up.railway.app";
+const APP_TOKEN=localStorage.getItem("bb_auth_token")||"brainbattle-dev-key";
 
-  /* ── DOUBT mode state ──────────────────── */
-  const [question,setQuestion] = useState("");
-  const [answer,setAnswer]     = useState(null);
-  const [sources,setSources]   = useState([]);
-  const [mood,setMood]         = useState("idle");
-  const [dLoading,setDLoading] = useState(false);
-  const [history,setHistory]   = useState([]);
-  const [histTab,setHistTab]   = useState("Recent");
-  const [showDPaywall,setShowDPaywall] = useState(false);
-  const inputRef = useRef(null);
-
-  /* ── FEYNMAN mode state ────────────────── */
-  const FEYNMAN_PHASES=[
-    {icon:"💡",label:"Analogy"},
-    {icon:"🔬",label:"NCERT"},
-    {icon:"⚡",label:"NEET Catch"},
-    {icon:"📝",label:"MCQ"},
-  ];
-  const [msgs,setMsgs] = useState([
-    {role:"assistant",text:"👋 Hi! I'm your **Feynman NEET Tutor**.\n\nI teach using a strict 4-phase loop — one phase at a time, waiting for your reply before moving forward:\n💡 Analogy → 🔬 NCERT Bridge → ⚡ NEET Catch → 📝 MCQ\n\n**What NEET topic do you want to master?**\n\n*(Try: Relative Velocity, Golgi Apparatus, Photoelectric Effect, Le Chatelier's Principle)*"}
-  ]);
-  const [fInput,setFInput]         = useState("");
-  const [fLoading,setFLoading]     = useState(false);
-  const [phase,setPhase]           = useState(0);
-  const [topic,setTopic]           = useState("");
-  const [topicStarted,setTopicStarted] = useState(false);
-  const [katexReady,setKatexReady] = useState(false);
-  const [showFPaywall,setShowFPaywall] = useState(false);
-  const [fPaywallReason,setFPaywallReason] = useState("");
-  const fHistoryRef = useRef([]);
-  const bottomRef   = useRef(null);
+function DoubtScreen({onBack,userName="Student"}){
+  const [question,setQuestion]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [answer,setAnswer]=useState(null);
+  const [sources,setSources]=useState([]);
+  const [mood,setMood]=useState("idle");
+  const [history,setHistory]=useState([]);
+  const [historyTab,setHistoryTab]=useState("Recent");
+  const [subject,setSubject]=useState("Biology");
+  const [showPaywall,setShowPaywall]=useState(false);
+  const inputRef=useRef(null);
 
   useEffect(()=>{
     const saved=localStorage.getItem("bb_doubt_history");
     if(saved) try{setHistory(JSON.parse(saved));}catch(e){}
   },[]);
 
-  useEffect(()=>{
-    if(bottomRef.current) bottomRef.current.scrollIntoView({behavior:"smooth"});
-  },[msgs,fLoading]);
+  const saveHistory=(q,a)=>{
+    const item={q,a:a.slice(0,120),time:Date.now(),subject};
+    const updated=[item,...history].slice(0,20);
+    setHistory(updated);
+    localStorage.setItem("bb_doubt_history",JSON.stringify(updated));
+  };
 
-  // Load KaTeX for Feynman math rendering
-  useEffect(()=>{
-    if(window.katex){setKatexReady(true);return;}
-    const link=document.createElement("link");
-    link.rel="stylesheet";
-    link.href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css";
-    document.head.appendChild(link);
-    const script=document.createElement("script");
-    script.src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js";
-    script.onload=()=>setKatexReady(true);
-    document.head.appendChild(script);
-  },[]);
-
-  /* ── DOUBT mode API call ───────────────── */
   const askDoubt=async()=>{
     const q=question.trim();
-    if(!q||dLoading) return;
+    if(!q||loading) return;
+
+    // Check daily limit for free users
     const today=new Date().toDateString();
     const usageKey="bb_doubt_usage_"+today;
     const usageData=JSON.parse(localStorage.getItem(usageKey)||'{"count":0}');
-    const isPremium=LAUNCH_WEEK_ACTIVE || JSON.parse(localStorage.getItem("bb_premium")||'false');
+    const isPremium=JSON.parse(localStorage.getItem("bb_premium")||'false');
     if(!isPremium && usageData.count>=3){
-      setShowDPaywall(true); return;
+      setAnswer("You've used your 3 free Dr. Neuron questions.\n\nUpgrade to Pro for unlimited doubt solving!");
+      setMood("confused");
+      setShowPaywall(true);
+      return;
     }
-    setDLoading(true);setAnswer("");setSources([]);setMood("thinking");
-    let full="";
+
+    setLoading(true);setAnswer("");setSources([]);setMood("thinking");
+    let fullAnswer="";
     try{
       const res=await fetch(`${RAG_URL}/doubt`,{
         method:"POST",
-        headers:{"Content-Type":"application/json","X-App-Token":APP_TOKEN()},
+        headers:{"Content-Type":"application/json","X-App-Token":APP_TOKEN},
         body:JSON.stringify({question:q,history:[]}),
       });
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      if(!res.ok) throw new Error(`Server error ${res.status}`);
       const reader=res.body.getReader();
-      const dec=new TextDecoder();
-      setDLoading(false);
+      const decoder=new TextDecoder();
+      setLoading(false);
+
       while(true){
         const {done,value}=await reader.read();
         if(done) break;
-        for(const line of dec.decode(value,{stream:true}).split("\n")){
+        const text=decoder.decode(value,{stream:true});
+        const lines=text.split("\n");
+        for(const line of lines){
           if(!line.startsWith("data: ")) continue;
           try{
             const evt=JSON.parse(line.slice(6));
-            if(evt.type==="sources") setSources(evt.sources||[]);
-            else if(evt.type==="token"){ full+=evt.text; setAnswer(a=>(a||"")+evt.text); setMood("happy"); }
+            if(evt.type==="sources"){setSources(evt.sources||[]);}
+            else if(evt.type==="token"){
+              fullAnswer+=evt.text;
+              setAnswer(a=>a+evt.text);
+              setMood("happy");
+            }
             else if(evt.type==="done"){
-              const h=[{q,a:full.slice(0,120),time:Date.now(),subject:"NEET"},...history].slice(0,20);
-              setHistory(h); localStorage.setItem("bb_doubt_history",JSON.stringify(h));
+              saveHistory(q,fullAnswer);
+              // Update usage count
               localStorage.setItem(usageKey,JSON.stringify({count:usageData.count+1}));
             }
-            else if(evt.type==="error"){ setAnswer("⚠️ "+evt.text); setMood("confused"); }
+            else if(evt.type==="error"){
+              setAnswer("⚠️ "+evt.text);
+              setMood("confused");
+            }
           }catch(e){}
         }
       }
     }catch(e){
-      setDLoading(false);
+      setLoading(false);
       setAnswer("⚠️ Could not reach the server. Please check your connection.");
       setMood("confused");
-    }
-  };
-
-  /* ── FEYNMAN mode API call ─────────────── */
-  const detectPhase=(text)=>{
-    if(/📝|Assertion.*\(A\)|Knowledge Check/i.test(text)) return 3;
-    if(/⚡|NEET Catch|Rain.Man|River|NTA trap/i.test(text)) return 2;
-    if(/🔬|Active Recall Check|NCERT|Chapter|Class 1[12]/i.test(text)) return Math.max(phase,1);
-    return phase;
-  };
-
-  const renderMathLine=(line,key)=>{
-    const isRecall = /Active Recall Check|🔬/.test(line);
-    const isCatch  = /NEET Catch|⚡/.test(line);
-    const isMCQ    = /📝|Assertion \(A\)|Reason \(R\)/.test(line);
-    const isHook   = /Does this analogy|💡/.test(line);
-    const isBullet = /^[\s]*[•\-\*]/.test(line);
-
-    let bg="transparent", bl="none", pl=isBullet?14:0;
-    if(isRecall){bg="#F3F0FF";bl="3px solid #7C3AED";pl=12;}
-    if(isCatch) {bg="#FFF8E1";bl="3px solid #FF9500";pl=12;}
-    if(isMCQ)   {bg="#F0FDF4";bl="3px solid #22C55E";pl=12;}
-    if(isHook)  {bg="#FFF0F8";bl="3px solid #E91E8C";pl=12;}
-
-    const renderMath=(str)=>{
-      if(!katexReady||!window.katex) return str;
-      str=str.replace(/\$\$(.+?)\$\$/g,(_,m)=>{try{return window.katex.renderToString(m,{displayMode:true,throwOnError:false});}catch(e){return `$$${m}$$`;}});
-      str=str.replace(/\$([^\$\n]+?)\$/g,(_,m)=>{try{return window.katex.renderToString(m,{displayMode:false,throwOnError:false});}catch(e){return `$${m}$`;}});
-      return str;
-    };
-
-    let html=line.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*([^*\n]+?)\*/g,'<em>$1</em>');
-    html=renderMath(html);
-
-    return(
-      <div key={key} style={{
-        fontSize:13,lineHeight:1.7,color:"var(--tx)",
-        marginBottom:isBullet?3:5,
-        marginTop:isRecall||isCatch||isMCQ||isHook?6:0,
-        padding:isRecall||isCatch||isMCQ||isHook?`8px ${pl}px`:`0 0 0 ${pl}px`,
-        background:bg,borderLeft:bl,
-        borderRadius:isRecall||isCatch||isMCQ||isHook?10:0,
-      }} dangerouslySetInnerHTML={{__html:html||"&nbsp;"}}/>
-    );
-  };
-
-  const sendFeynman=async()=>{
-    const text=fInput.trim();
-    if(!text||fLoading) return;
-
-    // Paywall check on first topic
-    if(!topicStarted){
-      const accessUid=uid||localStorage.getItem("bb_uid");
-      const devMode=localStorage.getItem("bb_dev_mode")==="true";
-      if(accessUid && !devMode){
-        try{
-          const mod=await import("./firebase_utils");
-          const {allowed,reason}=await mod.verifyAccess(accessUid,"feynman");
-          if(!allowed){ setFPaywallReason(reason); setShowFPaywall(true); return; }
-          await mod.incrementUsage(accessUid,"feynman");
-        }catch(e){console.error("Feynman paywall:",e);}
-      }
-      setTopicStarted(true);
-      setTopic(text.length>40?text.slice(0,40)+"…":text);
-      setPhase(0);
-    }
-
-    setFInput("");
-    // Add user message + empty assistant placeholder in one update (no duplicate)
-    const PLACEHOLDER_ID = Date.now();
-    setMsgs(m=>[...m,{role:"user",text},{role:"assistant",text:"",id:PLACEHOLDER_ID}]);
-    setFLoading(true);
-
-    const isFirstTurn = fHistoryRef.current.length===0;
-    const questionToSend = isFirstTurn
-      ? `[DEEP_DIVE_TEACHING_MODE]\n${FEYNMAN_CONTEXT}\n\n---\nStudent wants to learn: ${text}`
-      : text;
-
-    fHistoryRef.current=[...fHistoryRef.current,{role:"user",content:text}];
-
-    let full="";
-    try{
-      const res=await fetch(`${RAG_URL}/doubt`,{
-        method:"POST",
-        headers:{"Content-Type":"application/json","X-App-Token":APP_TOKEN()},
-        body:JSON.stringify({
-          question: questionToSend,
-          history:  fHistoryRef.current.slice(0,-1),
-        }),
-      });
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      const reader=res.body.getReader();
-      const dec=new TextDecoder();
-      setFLoading(false);
-      while(true){
-        const {done,value}=await reader.read();
-        if(done) break;
-        for(const line of dec.decode(value,{stream:true}).split("\n")){
-          if(!line.startsWith("data: ")) continue;
-          try{
-            const evt=JSON.parse(line.slice(6));
-            if(evt.type==="token"){
-              full+=evt.text;
-              // Update the placeholder message in-place — no new message created
-              setMsgs(m=>m.map(msg=>msg.id===PLACEHOLDER_ID?{...msg,text:full}:msg));
-            }
-            else if(evt.type==="done"){
-              fHistoryRef.current=[...fHistoryRef.current,{role:"assistant",content:full}];
-              setPhase(p=>Math.max(p,detectPhase(full)));
-            }
-            else if(evt.type==="error"){
-              full="⚠️ "+evt.text;
-              setMsgs(m=>m.map(msg=>msg.id===PLACEHOLDER_ID?{...msg,text:full}:msg));
-            }
-          }catch(e){}
-        }
-      }
-      if(!full){
-        setMsgs(m=>m.map(msg=>msg.id===PLACEHOLDER_ID?{...msg,text:"⚠️ No response received. Please try again."}:msg));
-      }
-    }catch(e){
-      setFLoading(false);
-      setMsgs(m=>m.map(msg=>msg.id===PLACEHOLDER_ID?{...msg,text:"⚠️ Could not reach the server. Please check your connection."}:msg));
     }
   };
 
@@ -3543,248 +2968,125 @@ function DoubtScreen({onBack, userName="Student", initialMode="doubt", uid=null}
     {bg:"#EDE9FE",border:"#C4B5FD",dot:"#7C3AED"},
   ];
 
-  const TOPIC_CHIPS=["Relative Velocity","Golgi Apparatus","Photoelectric Effect","DNA Replication","Le Chatelier's Principle"];
+  const displayHistory=historyTab==="Recent"?history.slice(0,5):history;
 
   return(
-    <div style={{minHeight:"100vh",background:mode==="feynman"?"#F7F4FF":"linear-gradient(160deg,#F5F0FF 0%,#FFF8F0 50%,#F0FFF4 100%)",fontFamily:"var(--font)"}}>
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#F5F0FF 0%,#FFF8F0 50%,#F0FFF4 100%)",fontFamily:"var(--font)",paddingBottom:40}}>
       <style>{`
         @keyframes floatBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
         @keyframes fadeSlide{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
         @keyframes pulseOpacity{0%,100%{opacity:1}50%{opacity:.5}}
-        @keyframes msgIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
       `}</style>
 
-      {/* Feynman Paywall */}
-      {showFPaywall&&<PaywallModal onClose={()=>{setShowFPaywall(false);setFPaywallReason("");}} reason={fPaywallReason} uid={uid}/>}
-
       {/* Header */}
-      <div style={{
-        background:"linear-gradient(135deg,#4C1D95,#7C3AED,#E91E8C)",
-        padding:"44px 20px 0",
-      }}>
-        <button onClick={onBack} style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.3)",borderRadius:12,width:36,height:36,color:"#fff",fontSize:16,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center"}}>←</button>
-
-        {mode==="doubt"?(
-          <div style={{display:"flex",alignItems:"center",gap:14,paddingBottom:14}}>
-            <div style={{animation:"floatBob 3s ease infinite",flexShrink:0}}><DrNeuron mood={mood}/></div>
-            <div>
-              <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.7)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Dr. Neuron 🧠</div>
-              <div style={{fontSize:19,fontWeight:900,color:"#fff",lineHeight:1.2}}>Hello, {userName}! 👋</div>
-              <div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:2,fontWeight:600}}>Ask anything — NCERT-grounded instant answers</div>
-            </div>
+      <div style={{background:"rgba(255,255,255,0.8)",backdropFilter:"blur(20px)",borderBottom:"1px solid rgba(124,58,237,.08)",padding:"44px 20px 16px"}}>
+        <button onClick={onBack} style={{background:"rgba(124,58,237,.1)",border:"none",borderRadius:12,width:36,height:36,color:"#7C3AED",fontSize:16,cursor:"pointer",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"center"}}>←</button>
+        <div style={{display:"flex",alignItems:"center",gap:14}}>
+          <div style={{animation:"floatBob 3s ease infinite",flexShrink:0}}><DrNeuron mood={mood}/></div>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:"#9CA3AF",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Dr. Neuron 🧠</div>
+            <div style={{fontSize:20,fontWeight:900,color:"#1F1235",lineHeight:1.2}}>Hello, {userName}! 👋</div>
+            <div style={{fontSize:13,color:"#6B7280",marginTop:2,fontWeight:600}}>Ask anything — I explain like Feynman 🔥</div>
           </div>
-        ):(
-          <div style={{paddingBottom:0}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-              <div>
-                <div style={{fontSize:17,fontWeight:900,color:"#fff"}}>🧠 Feynman Deep Dive</div>
-                <div style={{fontSize:11,color:"rgba(255,255,255,.7)",marginTop:2}}>{topic?`📌 ${topic}`:"Analogy → NCERT → NEET Catch → MCQ"}</div>
-              </div>
-              <div style={{background:"rgba(255,255,255,.15)",borderRadius:10,padding:"5px 10px",border:"1px solid rgba(255,255,255,.25)"}}>
-                <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,.6)"}}>POWERED BY</div>
-                <div style={{fontSize:10,fontWeight:900,color:"#fff"}}>Claude AI</div>
-              </div>
-            </div>
-            {/* Phase bar */}
-            <div style={{display:"flex",gap:4,paddingBottom:10}}>
-              {FEYNMAN_PHASES.map((p,i)=>(
-                <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                  <div style={{width:"100%",height:3,borderRadius:2,background:i<=phase?"rgba(255,255,255,.9)":"rgba(255,255,255,.25)",transition:"background .4s"}}/>
-                  <div style={{fontSize:9,fontWeight:700,color:i<=phase?"rgba(255,255,255,.9)":"rgba(255,255,255,.4)"}}>{p.icon} {p.label}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Mode toggle — segmented control, always visible on any background */}
-        <div style={{display:"flex",background:"rgba(0,0,0,.18)",borderRadius:20,padding:5,gap:4,margin:"10px 0 4px"}}>
-          <button onClick={()=>setMode("doubt")} style={{
-            flex:1,padding:"11px 8px",borderRadius:16,border:"none",cursor:"pointer",
-            transition:"all .22s",fontFamily:"var(--font)",
-            background:mode==="doubt"?"linear-gradient(135deg,#667EEA,#764BA2)":"transparent",
-            boxShadow:mode==="doubt"?"0 4px 14px rgba(102,126,234,.55)":"none",
-            transform:mode==="doubt"?"scale(1.02)":"scale(1)",
-          }}>
-            <div style={{fontSize:22,marginBottom:2}}>🔍</div>
-            <div style={{fontSize:13,fontWeight:900,color:mode==="doubt"?"#fff":"rgba(255,255,255,.7)"}}>Ask Doubt</div>
-            <div style={{fontSize:10,fontWeight:600,color:mode==="doubt"?"rgba(255,255,255,.85)":"rgba(255,255,255,.45)",marginTop:1}}>Instant NCERT answer</div>
-          </button>
-          <button onClick={()=>setMode("feynman")} style={{
-            flex:1,padding:"11px 8px",borderRadius:16,border:"none",cursor:"pointer",
-            transition:"all .22s",fontFamily:"var(--font)",
-            background:mode==="feynman"?"linear-gradient(135deg,#E91E8C,#7C3AED)":"transparent",
-            boxShadow:mode==="feynman"?"0 4px 14px rgba(233,30,140,.55)":"none",
-            transform:mode==="feynman"?"scale(1.02)":"scale(1)",
-          }}>
-            <div style={{fontSize:22,marginBottom:2}}>🧠</div>
-            <div style={{fontSize:13,fontWeight:900,color:mode==="feynman"?"#fff":"rgba(255,255,255,.7)"}}>Deep Dive</div>
-            <div style={{fontSize:10,fontWeight:600,color:mode==="feynman"?"rgba(255,255,255,.85)":"rgba(255,255,255,.45)",marginTop:1}}>4-phase Feynman loop</div>
-          </button>
         </div>
       </div>
 
-      {/* ══ DOUBT MODE ══ */}
-      {mode==="doubt"&&(
-        <div style={{padding:"16px 20px 80px"}}>
-          <div style={{background:"#fff",borderRadius:24,padding:20,marginBottom:16,boxShadow:"0 4px 0 #E9D5FF,0 8px 32px rgba(124,58,237,.08)",border:"1.5px solid #EDE9FE",animation:"fadeSlide .4s ease both"}}>
-            <textarea ref={inputRef} value={question} onChange={e=>setQuestion(e.target.value)}
-              onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();askDoubt();}}}
-              placeholder="e.g. Why does DNA replicate? How does a capacitor work? Explain osmosis..."
-              rows={3}
-              style={{width:"100%",border:"1.5px solid #EDE9FE",borderRadius:16,padding:"12px 14px",fontSize:14,color:"#1F1235",lineHeight:1.6,background:"#FAFAFA",outline:"none",fontFamily:"var(--font)",resize:"none",boxSizing:"border-box"}}/>
-            <button onClick={askDoubt} disabled={dLoading||!question.trim()} style={{width:"100%",marginTop:12,padding:"14px",background:dLoading||!question.trim()?"#E5E7EB":"linear-gradient(135deg,#7C3AED,#EC4899)",border:"none",borderRadius:16,color:dLoading||!question.trim()?"#9CA3AF":"#fff",fontSize:14,fontWeight:800,cursor:dLoading||!question.trim()?"not-allowed":"pointer",transition:"all .2s",boxShadow:dLoading||!question.trim()?"none":"0 4px 16px rgba(124,58,237,.35)"}}>
-              {dLoading?<span style={{animation:"pulseOpacity 1s infinite"}}>🔍 Dr. Neuron is thinking...</span>:"Ask Dr. Neuron ✨"}
+      <div style={{padding:"16px 20px 0"}}>
+        {/* Subject pills */}
+        
+
+        {/* Question card */}
+        <div style={{background:"#fff",borderRadius:24,padding:20,marginBottom:16,boxShadow:"0 4px 0 #E9D5FF,0 8px 32px rgba(124,58,237,.08)",border:"1.5px solid #EDE9FE",animation:"fadeSlide .4s ease both"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+            <div style={{width:44,height:44,borderRadius:14,background:loading?"#FEF3C7":question.length>0?"#DBEAFE":"#FEF9EC",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,transition:"all .3s",boxShadow:"inset 0 2px 4px rgba(0,0,0,.06)"}}>
+              {loading?"🤔":question.length>10?"🧐":"💬"}
+            </div>
+            <div>
+              <div style={{fontSize:14,fontWeight:800,color:"#1F1235"}}>Type your doubt</div>
+              <div style={{fontSize:11,color:"#9CA3AF",fontWeight:600}}>NCERT-grounded · Instant answer</div>
+            </div>
+          </div>
+          <textarea ref={inputRef} value={question} onChange={e=>setQuestion(e.target.value)}
+            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();askDoubt();}}}
+            placeholder="e.g. Why does DNA replicate? How does a capacitor work? Explain osmosis..."
+            rows={3}
+            style={{width:"100%",border:"1.5px solid #EDE9FE",borderRadius:16,padding:"12px 14px",fontSize:14,color:"#1F1235",lineHeight:1.6,background:"#FAFAFA",outline:"none",fontFamily:"var(--font)",resize:"none",boxSizing:"border-box"}}/>
+          <button onClick={askDoubt} disabled={loading||!question.trim()} style={{width:"100%",marginTop:12,padding:"14px",background:loading||!question.trim()?"#E5E7EB":"linear-gradient(135deg,#7C3AED,#EC4899)",border:"none",borderRadius:16,color:loading||!question.trim()?"#9CA3AF":"#fff",fontSize:14,fontWeight:800,cursor:loading||!question.trim()?"not-allowed":"pointer",transition:"all .2s",boxShadow:loading||!question.trim()?"none":"0 4px 16px rgba(124,58,237,.35)"}}>
+            {loading?<span style={{animation:"pulseOpacity 1s infinite"}}>🔍 Dr. Neuron is thinking...</span>:"Ask Dr. Neuron ✨"}
+          </button>
+        </div>
+
+        {/* Answer card */}
+        {answer&&(
+          <div style={{background:"#fff",borderRadius:24,padding:20,marginBottom:16,boxShadow:"0 4px 0 #D1FAE5,0 8px 32px rgba(16,185,129,.08)",border:"1.5px solid #D1FAE5",animation:"fadeSlide .5s ease both"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+              <div style={{width:32,height:32,borderRadius:10,background:"#D1FAE5",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>💡</div>
+              <div>
+                <div style={{fontSize:13,fontWeight:800,color:"#065F46"}}>Dr. Neuron's Answer</div>
+                <div style={{fontSize:10,color:"#6B7280",fontWeight:600}}>NCERT-grounded response</div>
+              </div>
+            </div>
+            {sources.length>0&&(
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+                {sources.slice(0,3).map((s,i)=>(
+                  <span key={i} style={{display:"inline-flex",alignItems:"center",gap:4,background:"#E8F5E9",color:"#2E7D32",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:20,letterSpacing:0.3}}>
+                    📗 {s.source||s.chapter}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div style={{fontSize:14,color:"#1F2937",lineHeight:1.8,fontWeight:500,whiteSpace:"pre-wrap"}}>{answer}</div>
+            <button onClick={()=>{setAnswer(null);setSources([]);setMood("idle");setQuestion("");inputRef.current?.focus();}}
+              style={{marginTop:12,padding:"8px 16px",background:"#F0FDF4",border:"1.5px solid #D1FAE5",borderRadius:12,color:"#059669",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+              + Ask a follow-up
             </button>
           </div>
+        )}
 
-          {answer&&(
-            <div style={{background:"#fff",borderRadius:24,padding:20,marginBottom:16,boxShadow:"0 4px 0 #D1FAE5,0 8px 32px rgba(16,185,129,.08)",border:"1.5px solid #D1FAE5",animation:"fadeSlide .5s ease both"}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-                <div style={{width:32,height:32,borderRadius:10,background:"#D1FAE5",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>💡</div>
-                <div>
-                  <div style={{fontSize:13,fontWeight:800,color:"#065F46"}}>Dr. Neuron's Answer</div>
-                  <div style={{fontSize:10,color:"#6B7280",fontWeight:600}}>NCERT-grounded response</div>
-                </div>
+        {/* Paywall */}
+        {showPaywall&&<PaywallCard onClose={()=>setShowPaywall(false)} onUpgrade={()=>{
+          localStorage.setItem("bb_premium",JSON.stringify(true));
+          setShowPaywall(false);
+          alert("Premium activated! (Demo mode)");
+        }}/>}
+
+      {/* History */}
+        {history.length>0&&(
+          <div style={{background:"#fff",borderRadius:24,padding:20,boxShadow:"0 4px 0 #EDE9FE,0 8px 32px rgba(124,58,237,.06)",border:"1.5px solid #EDE9FE",animation:"fadeSlide .6s .1s ease both"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+              <div style={{fontSize:14,fontWeight:800,color:"#1F1235"}}>📚 Previous Doubts</div>
+              <div style={{display:"flex",background:"#EDE9FE",borderRadius:20,padding:3,gap:2}}>
+                {["Recent","All"].map(t=>(
+                  <button key={t} onClick={()=>setHistoryTab(t)} style={{padding:"5px 14px",borderRadius:18,border:"none",fontSize:11,fontWeight:700,cursor:"pointer",transition:"all .2s",background:historyTab===t?"#fff":"transparent",color:historyTab===t?"#7C3AED":"#9CA3AF",boxShadow:historyTab===t?"0 2px 8px rgba(124,58,237,.15)":"none"}}>{t}</button>
+                ))}
               </div>
-              {sources.length>0&&(
-                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
-                  {sources.slice(0,3).map((s,i)=>(
-                    <span key={i} style={{display:"inline-flex",alignItems:"center",gap:4,background:"#E8F5E9",color:"#2E7D32",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:20}}>
-                      📗 {s.source||s.chapter}
-                    </span>
-                  ))}
-                </div>
-              )}
-              <div style={{fontSize:14,color:"#1F2937",lineHeight:1.8,fontWeight:500,whiteSpace:"pre-wrap"}}>{answer}</div>
-              <button onClick={()=>{setAnswer(null);setSources([]);setMood("idle");setQuestion("");inputRef.current?.focus();}}
-                style={{marginTop:12,padding:"8px 16px",background:"#F0FDF4",border:"1.5px solid #D1FAE5",borderRadius:12,color:"#059669",fontSize:12,fontWeight:700,cursor:"pointer"}}>
-                + Ask a follow-up
-              </button>
             </div>
-          )}
-
-          {showDPaywall&&<PaywallModal onClose={()=>setShowDPaywall(false)} uid={uid} onSuccess={()=>{setShowDPaywall(false);}}/>}
-
-          {history.length>0&&(
-            <div style={{background:"#fff",borderRadius:24,padding:20,boxShadow:"0 4px 0 #EDE9FE,0 8px 32px rgba(124,58,237,.06)",border:"1.5px solid #EDE9FE"}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-                <div style={{fontSize:14,fontWeight:800,color:"#1F1235"}}>📚 Previous Doubts</div>
-                <div style={{display:"flex",background:"#EDE9FE",borderRadius:20,padding:3,gap:2}}>
-                  {["Recent","All"].map(t=>(
-                    <button key={t} onClick={()=>setHistTab(t)} style={{padding:"5px 14px",borderRadius:18,border:"none",fontSize:11,fontWeight:700,cursor:"pointer",background:histTab===t?"#fff":"transparent",color:histTab===t?"#7C3AED":"#9CA3AF",boxShadow:histTab===t?"0 2px 8px rgba(124,58,237,.15)":"none"}}>{t}</button>
-                  ))}
-                </div>
-              </div>
-              {(histTab==="Recent"?history.slice(0,5):history).map((item,i)=>{
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {displayHistory.map((item,i)=>{
                 const c=pastelColors[i%pastelColors.length];
                 return(
                   <button key={i} onClick={()=>{setQuestion(item.q);setAnswer(item.a);setMood("happy");}}
-                    style={{background:c.bg,border:`1.5px solid ${c.border}`,borderRadius:14,padding:"10px 14px",textAlign:"left",cursor:"pointer",display:"flex",alignItems:"center",gap:10,width:"100%",marginBottom:7}}>
+                    style={{background:c.bg,border:`1.5px solid ${c.border}`,borderRadius:14,padding:"10px 14px",textAlign:"left",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
                     <div style={{width:8,height:8,borderRadius:"50%",background:c.dot,flexShrink:0}}/>
                     <div>
                       <div style={{fontSize:12,fontWeight:700,color:"#1F2937",lineHeight:1.3}}>{item.q.slice(0,55)}{item.q.length>55?"...":""}</div>
-                      <div style={{fontSize:10,color:"#9CA3AF",marginTop:2,fontWeight:600}}>{new Date(item.time).toLocaleDateString()}</div>
+                      <div style={{fontSize:10,color:"#9CA3AF",marginTop:2,fontWeight:600}}>{item.subject} · {new Date(item.time).toLocaleDateString()}</div>
                     </div>
                   </button>
                 );
               })}
-              <button onClick={()=>{setHistory([]);localStorage.removeItem("bb_doubt_history");}} style={{marginTop:6,background:"transparent",border:"none",color:"#EF4444",fontSize:11,fontWeight:700,cursor:"pointer",padding:"4px 0"}}>🗑 Clear history</button>
             </div>
-          )}
-        </div>
-      )}
-
-      {/* ══ FEYNMAN DEEP DIVE MODE ══ */}
-      {mode==="feynman"&&(
-        <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 200px)"}}>
-          <div style={{flex:1,overflowY:"auto",padding:"14px 16px 20px"}}>
-            {msgs.length<=1&&(
-              <div style={{marginBottom:16}}>
-                <div style={{fontSize:11,fontWeight:700,color:"var(--sub)",marginBottom:8,textAlign:"center",letterSpacing:.5,textTransform:"uppercase"}}>Popular NEET topics</div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:7,justifyContent:"center",marginBottom:10}}>
-                  {TOPIC_CHIPS.map((s,i)=>(
-                    <button key={i} onClick={()=>setFInput(s)} style={{padding:"7px 14px",borderRadius:20,border:"1.5px solid #C4B5FD",background:"#EDE9FE",color:"#7C3AED",fontSize:12,fontWeight:700,cursor:"pointer"}}>{s}</button>
-                  ))}
-                </div>
-                <div style={{padding:"10px 14px",background:"linear-gradient(135deg,#FFF9E6,#FFFBF0)",borderRadius:14,border:"1px solid #FDE68A",fontSize:11,color:"#92400E",fontWeight:600,textAlign:"center"}}>
-                  💡 Free: 1 deep-dive/day · <span style={{color:"#7C3AED",fontWeight:800}}>Upgrade for unlimited</span>
-                </div>
-              </div>
-            )}
-
-            {msgs.map((msg,i)=>{
-              const isMe=msg.role==="user";
-              return(
-                <div key={i} style={{display:"flex",justifyContent:isMe?"flex-end":"flex-start",marginBottom:14,animation:"msgIn .25s ease"}}>
-                  {!isMe&&<div style={{width:32,height:32,borderRadius:"50%",background:"linear-gradient(135deg,#4C1D95,#7C3AED)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0,marginRight:8,alignSelf:"flex-end"}}>🧠</div>}
-                  <div style={{maxWidth:"84%",padding:"11px 14px",borderRadius:isMe?"18px 18px 4px 18px":"4px 18px 18px 18px",background:isMe?"linear-gradient(135deg,#7C3AED,#E91E8C)":"#fff",boxShadow:isMe?"0 3px 12px rgba(124,58,237,.3)":"0 2px 10px rgba(0,0,0,.07)",border:isMe?"none":"1px solid #EDE9FE"}}>
-                    {isMe
-                      ?<div style={{fontSize:13,color:"#fff",lineHeight:1.6}}>{msg.text}</div>
-                      :<div>{msg.text.split("\n").map((line,j)=>renderMathLine(line,j))}</div>
-                    }
-                  </div>
-                </div>
-              );
-            })}
-
-            {fLoading&&(
-              <div style={{display:"flex",alignItems:"flex-end",gap:8,marginBottom:12}}>
-                <div style={{width:32,height:32,borderRadius:"50%",background:"linear-gradient(135deg,#4C1D95,#7C3AED)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>🧠</div>
-                <div style={{padding:"12px 16px",background:"#fff",borderRadius:"4px 18px 18px 18px",boxShadow:"0 2px 10px rgba(0,0,0,.07)",border:"1px solid #EDE9FE"}}>
-                  <div style={{display:"flex",gap:5,alignItems:"center"}}>
-                    {[0,.18,.36].map(d=><div key={d} style={{width:7,height:7,borderRadius:"50%",background:"linear-gradient(135deg,#7C3AED,#E91E8C)",animation:`dotP 1.1s ${d}s ease infinite`}}/>)}
-                    <span style={{fontSize:11,color:"#9CA3AF",marginLeft:6,fontWeight:600}}>Feynman is thinking…</span>
-                  </div>
-                </div>
-              </div>
-            )}
-            <div ref={bottomRef}/>
+            <button onClick={()=>{setHistory([]);localStorage.removeItem("bb_doubt_history");}} style={{marginTop:10,background:"transparent",border:"none",color:"#EF4444",fontSize:11,fontWeight:700,cursor:"pointer",padding:"4px 0"}}>
+              🗑 Clear history
+            </button>
           </div>
-
-          {/* Feynman input */}
-          <div style={{padding:"10px 14px 28px",background:"rgba(247,244,255,.97)",borderTop:"1.5px solid #EDE9FE",backdropFilter:"blur(12px)"}}>
-            {topicStarted&&(
-              <div style={{marginBottom:8}}>
-                <div style={{display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap"}}>
-                  {FEYNMAN_PHASES.map((p,i)=>(
-                    <div key={i} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:20,
-                      background:i===Math.min(phase,3)?"linear-gradient(135deg,#7C3AED,#E91E8C)":i<phase?"#D1FAE5":"#F3F4F6",
-                      opacity:i>phase?0.45:1,transition:"all .3s",
-                    }}>
-                      <span style={{fontSize:11}}>{p.icon}</span>
-                      <span style={{fontSize:10,fontWeight:800,color:i===Math.min(phase,3)?"#fff":i<phase?"#065F46":"#6B7280"}}>{p.label}</span>
-                      {i<phase&&<span style={{fontSize:10,color:"#065F46"}}>✓</span>}
-                    </div>
-                  ))}
-                </div>
-                {/* Quick phase nudges */}
-                <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap",justifyContent:"center"}}>
-                  <button onClick={()=>setFInput("yes")} style={{padding:"5px 12px",borderRadius:14,border:"1.5px solid #C4B5FD",background:"#EDE9FE",color:"#7C3AED",fontSize:11,fontWeight:700,cursor:"pointer"}}>✅ Yes, continue</button>
-                  <button onClick={()=>setFInput("I don't know, can you give a hint?")} style={{padding:"5px 12px",borderRadius:14,border:"1.5px solid #FCA5A5",background:"#FEF2F2",color:"#DC2626",fontSize:11,fontWeight:700,cursor:"pointer"}}>💡 Give hint</button>
-                  <button onClick={()=>setFInput("Skip to next phase")} style={{padding:"5px 12px",borderRadius:14,border:"1.5px solid #D1FAE5",background:"#F0FDF4",color:"#059669",fontSize:11,fontWeight:700,cursor:"pointer"}}>⏭ Next phase</button>
-                </div>
-              </div>
-            )}
-            <div style={{display:"flex",gap:10,alignItems:"center"}}>
-              <input value={fInput} onChange={e=>setFInput(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendFeynman()}
-                placeholder={topicStarted?"Answer or ask a question…":"Name a NEET topic to master…"}
-                style={{flex:1,padding:"12px 16px",borderRadius:22,border:"1.5px solid #C4B5FD",background:"#fff",fontSize:13,fontFamily:"var(--font)",outline:"none",color:"var(--tx)"}}/>
-              <button onClick={sendFeynman} disabled={fLoading||!fInput.trim()}
-                style={{width:44,height:44,borderRadius:"50%",background:fLoading||!fInput.trim()?"#DDD6FE":"linear-gradient(135deg,#7C3AED,#E91E8C)",border:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0,boxShadow:fLoading||!fInput.trim()?"none":"0 4px 16px rgba(124,58,237,.45)",cursor:fLoading||!fInput.trim()?"not-allowed":"pointer"}}>➤</button>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
 
-
 export default function App(){
-  const [authUser, setAuthUser] = useState(null);       // Firebase auth user
-  const [authLoading, setAuthLoading] = useState(true); // true until onAuthStateChanged fires
   const [tab,setTab]=useState("home");
   const [flow,setFlow]=useState(null);
   const [questions,setQs]=useState(null);
@@ -3803,56 +3105,33 @@ export default function App(){
 
 
   const [mockResult, setMockResult] = useState(null);
-  const [referralCount, setReferralCount] = useState(0);
   const [quizSubject,  setQuizSubject]  = useState(null);
   const [quizChapter,  setQuizChapter]  = useState(null);
   const [browseSubject,setBrowseSubject] = useState(null);
-  // Dev mode: set localStorage.bb_dev_mode = "true" to bypass all paywalls during testing
-  const DEV_MODE = localStorage.getItem("bb_dev_mode") === "true";
-
-  const startQuiz = async (subj=null, ch=null) => {
-    const uid = authUser?.uid || null;
-    // Launch week: all authenticated users get full access
-    if (!DEV_MODE && !LAUNCH_WEEK_ACTIVE) {
-      if (!userUsage.is_premium && userUsage.dailyQuizzesCount >= 3) {
-        setPaywallReason("You've used all 3 free quizzes for today. Upgrade to practice without limits.");
-        setShowPaywall(true);
+  const startQuiz = (subj=null, ch=null) => {
+    const isPremium=JSON.parse(localStorage.getItem("bb_premium")||"false");
+    if(!isPremium){
+      const usedQuizzes=parseInt(localStorage.getItem("bb_quiz_used")||"0");
+      if(usedQuizzes>=3){
+        setShowGlobalPaywall(true);
         return;
       }
-      const { allowed, reason } = await verifyAccess(uid, "quiz");
-      if (!allowed) {
-        setPaywallReason(reason);
-        setShowPaywall(true);
-        return;
-      }
+      localStorage.setItem("bb_quiz_used", String(usedQuizzes+1));
     }
-    // Access granted — write usage to Firestore immediately
-    await incrementUsage(uid, "quiz");
-    // Update local state so UI reflects new count without another Firestore read
-    setUserUsage(prev => ({ ...prev, dailyQuizzesCount: prev.dailyQuizzesCount + 1 }));
     setQuizSubject(subj);
     setQuizChapter(ch);
     setFlow("loading");
   };
-
-  const startMock = async () => {
-    const uid = authUser?.uid || null;
-    if (!DEV_MODE && !LAUNCH_WEEK_ACTIVE) {
-      if (!userUsage.is_premium && userUsage.hasAttemptedMock) {
-        setPaywallReason("Free plan includes 1 mock test. Upgrade for unlimited NEET mock access.");
-        setShowPaywall(true);
+  const startMock = ()=>{
+    const isPremium=JSON.parse(localStorage.getItem("bb_premium")||"false");
+    if(!isPremium){
+      const usedMocks=parseInt(localStorage.getItem("bb_mock_used")||"0");
+      if(usedMocks>=1){
+        setShowGlobalPaywall(true);
         return;
       }
-      const { allowed, reason } = await verifyAccess(uid, "mock");
-      if (!allowed) {
-        setPaywallReason(reason);
-        setShowPaywall(true);
-        return;
-      }
+      localStorage.setItem("bb_mock_used", String(usedMocks+1));
     }
-    // Access granted
-    await incrementUsage(uid, "mock");
-    setUserUsage(prev => ({ ...prev, hasAttemptedMock: true }));
     setFlow("neet_mock");
   };
   const goHome      = ()=>{setFlow(null);setTab("home");setMockResult(null);};
@@ -3861,181 +3140,80 @@ export default function App(){
   // eslint-disable-next-line
   const openDoubt   = ()=>setFlow("doubt");
 
-  // Firebase auth — waits for BOTH onAuthStateChanged AND getRedirectResult
-  // before setting authLoading=false.
+  // Firebase auth - single source of truth: onAuthStateChanged
+  // setPersistence is called globally in firebase_utils.js
+  // onAuthStateChanged fires BOTH on fresh login AND after redirect return
   useEffect(()=>{
-    let authFired    = false;
-    let redirectDone = false;
-
-    // Was a redirect in progress before the page reloaded?
-    // Set by signInWithGoogle() in firebase_utils.js BEFORE calling signInWithRedirect().
-    const pendingRedirect = sessionStorage.getItem("rb_redirect_pending") === "true";
-
-    const maybeFinish = () => {
-      if (authFired && redirectDone) setAuthLoading(false);
-    };
-
-    // Safety net — if both flags somehow never converge (e.g. Firebase SDK bug,
-    // network timeout, unauthorized domain), unblock the app after 6 seconds
-    // so the user sees the login screen rather than a stuck spinner forever.
-    const safetyTimer = setTimeout(() => {
-      if (!authFired)    authFired    = true;
-      if (!redirectDone) redirectDone = true;
-      setAuthLoading(false);
-    }, 6000);
-
-    const handleUser = async (user) => {
+    const unsub = onAuthChange(async (user)=>{
       if(user){
         setAuthUser(user);
         localStorage.setItem("bb_uid", user.uid);
-        await ensureUserDoc(user).catch(console.error);
-        const [stats, usage] = await Promise.all([
-          getUserStats(user.uid),
-          getUserUsage(user.uid),
-        ]);
+        // Create user doc if first time
+        ensureUserDoc(user).catch(console.error);
+        // Load stats
+        const stats = await getUserStats(user.uid);
         setUserStats(stats);
-        setUserUsage(usage);
-        // Load referral count for analysis lock
-        try{
-          const {getReferralCount} = await import("./firebase_utils");
-          const rc = await getReferralCount(user.uid);
-          setReferralCount(rc||0);
-        }catch(e){}
-        if (usage.is_premium) localStorage.setItem("bb_premium","true");
-        else localStorage.removeItem("bb_premium");
       } else {
         setAuthUser(null);
         localStorage.removeItem("bb_uid");
-        localStorage.removeItem("bb_premium");
         setUserStats({level:1,totalPoints:0,accuracy:0,streak:0,totalQs:0,rank:999,quizzesDone:0,studyMins:0});
-        setUserUsage({dailyQuizzesCount:0,hasAttemptedMock:false,is_premium:false});
       }
-    };
-
-    // 1. getRedirectResult — catches mobile Google redirect return
-    checkRedirectResult().then(async (result) => {
-      if (result?.user) {
-        // ✅ Redirect succeeded — user is signed in
-        await handleUser(result.user);
-        authFired = true; // getRedirectResult owns both flags when it returns a user
-      } else if (pendingRedirect) {
-        // Redirect was attempted but returned null — domain not yet authorized in
-        // Firebase Console, or user cancelled. onAuthStateChanged(null) was skipped
-        // by the guard below, so WE must call handleUser(null) here to unblock.
-        await handleUser(null);
-        authFired = true;
-      }
-      // If pendingRedirect was false, this is a normal page load —
-      // onAuthStateChanged will handle authFired via the normal path.
-      redirectDone = true;
-      clearTimeout(safetyTimer);
-      maybeFinish();
-    }).catch(async e => {
-      if (e.code === "auth/unauthorized-domain") {
-        console.error(
-          "❌ Firebase unauthorized domain — go to Firebase Console →\n" +
-          "   Authentication → Settings → Authorized Domains → Add domain\n" +
-          `   Add: ${window.location.hostname}`
-        );
-      } else {
-        console.error("checkRedirectResult:", e);
-      }
-      await handleUser(null);
-      authFired    = true;
-      redirectDone = true;
-      clearTimeout(safetyTimer);
       setAuthLoading(false);
     });
-
-    // 2. onAuthStateChanged — primary listener for all non-redirect auth events
-    const unsub = onAuthChange(async (user)=>{
-      // Firebase fires onAuthStateChanged(null) IMMEDIATELY on page load — even
-      // while a redirect credential is still being processed. Skip this premature
-      // null so we don't flash the login screen before getRedirectResult finishes.
-      if (!user && pendingRedirect && !redirectDone) {
-        return;
-      }
-      await handleUser(user);
-      authFired = true;
-      maybeFinish();
-    });
-    return ()=>{ unsub(); clearTimeout(safetyTimer); };
+    return ()=>unsub();
   },[]);// eslint-disable-line
 
   const [showOnboarding,setShowOnboarding]=useState(()=>{
     return !localStorage.getItem("bb_onboarded");
   });
-  // Usage state — loaded from Firestore on login; cannot be reset by clearing localStorage
-  const [userUsage, setUserUsage] = useState({
-    dailyQuizzesCount: 0,
-    hasAttemptedMock:  false,
-    is_premium:        false,
+  const [isPremium,setIsPremium]=useState(()=>{ // eslint-disable-line
+    return JSON.parse(localStorage.getItem("bb_premium")||"false");
   });
-  const [showPaywall, setShowPaywall] = useState(false);
-  const [paywallReason, setPaywallReason] = useState("");
+  const [showGlobalPaywall,setShowGlobalPaywall]=useState(false);
   const addQuestion = (q)=>setKB(prev=>[...prev,{...q,id:prev.length+1}]);
 
   const inFlow = !!flow;
 
   let content;
   if(flow==="loading")     content=<LoadingScreen onReady={qs=>{setQs(qs);setFlow("quiz");}} kb={kb} subject={quizSubject} chapter={quizChapter}/>;
-  else if(flow==="quiz"&&questions) content=<QuizScreen questions={questions} onFinish={r=>{
-          // Navigate immediately — never block results on network calls
+  else if(flow==="quiz"&&questions) content=<QuizScreen questions={questions} onFinish={async r=>{
           setResult(r);
-          setFlow("results");
-          // Fire-and-forget all backend syncing in background
           const uid=localStorage.getItem("bb_uid");
           if(uid && r){
-            saveQuizResult(uid,{
+            const saved=await saveQuizResult(uid,{
               score:r.ptsEarned||0,
               subject:quizSubject||"General",
-              correct:r.score||0,
+              correct:r.correct||0,
               total:r.total||5,
-              timeSecs:r.timeUsed||180,
-            }).then(saved=>{
-              if(saved) setUserStats(s=>({...s,
-                totalPoints:saved.newPoints,
-                accuracy:saved.newAccuracy,
-                level:saved.newLevel,
-                streak:saved.newStreak,
-              }));
-            }).catch(e=>console.warn("saveQuizResult:",e));
-            // Sync per-question records to Railway analytics
-            if(r.answers && questions){
-              const perQ=Object.entries(r.answers).map(([idx,a])=>({
-                user_id:    uid,
-                subject:    quizSubject||"General",
-                chapter:    quizChapter||(questions[idx]?.chapter)||"General",
-                is_correct: a.correct,
-                time_spent: (r.timeUsed||180)/Math.max(Object.keys(r.answers).length,1),
-                q_id:       String(questions[idx]?.id||idx),
-              }));
-              fetch(`${RAG_URL}/sync-progress`,{
-                method:"POST",
-                headers:{"Content-Type":"application/json","X-App-Token":getAppToken()},
-                body:JSON.stringify(perQ),
-              }).catch(e=>console.warn("sync-progress:",e));
-            }
+              timeSecs:r.timeSecs||180,
+            });
+            if(saved) setUserStats(s=>({...s,
+              totalPoints:saved.newPoints,
+              accuracy:saved.newAccuracy,
+              level:saved.newLevel,
+              streak:saved.newStreak,
+            }));
           }
+          setFlow("results");
         }}/>;
-  else if(flow==="results"&&result) content=<ResultsScreen result={result} questions={questions} onHome={goHome} onRetry={()=>startQuiz(quizSubject,quizChapter)}/>;
-  
+  else if(flow==="results"&&result) content=<ResultsScreen result={result} questions={questions} onHome={goHome} onRetry={()=>setFlow("loading")}/>;
+  else if(flow==="feynman") content=<FeynmanTutor onBack={()=>{setFlow(null);setTab("profile");}}/>;
   else if(flow==="neet_mock") content=<NeetMockScreen onBack={goHome} onFinish={r=>{setMockResult(r);setFlow("mock_results");}}/>;
-  else if(flow==="mock_results"&&mockResult) content=<NeetMockResults result={mockResult} onHome={goHome} onRetry={()=>startMock()}/>;
-  else if(flow==="doubt"||flow==="feynman") content=<DoubtScreen onBack={()=>{setFlow(null);setTab("home");}} userName={authUser?.displayName?.split(" ")[0]||"Student"} initialMode={flow==="feynman"?"feynman":"doubt"} uid={authUser?.uid||null}/>;
+  else if(flow==="mock_results"&&mockResult) content=<NeetMockResults result={mockResult} onHome={goHome} onRetry={()=>setFlow("neet_mock")}/>;
+  else if(flow==="doubt") content=<DoubtScreen onBack={()=>{setFlow(null);setTab("home");}} userName={authUser?.displayName?.split(" ")[0]||"Student"}/>;
   else if(flow==="browse"&&browseSubject) content=<ChapterSelectScreen subject={browseSubject} onChapter={ch=>startQuiz(browseSubject,ch)} onBack={()=>{setFlow(null);setBrowseSubject(null);}}/>;
   else if(tab==="home")     content=<HomeScreen onQuiz={startQuiz} onMock={startMock} onBrowse={subj=>{setBrowseSubject(subj);setFlow("browse");}} onDoubt={()=>setFlow("doubt")} score={score} rank={rank} streak={streak} accuracy={accuracy}/>;
-  else if(tab==="duel")     content=<DuelScreen kb={kb} uid={authUser?.uid} userName={authUser?.displayName?.split(" ")[0]||"You"}/>;
+  else if(tab==="duel")     content=<DuelScreen kb={kb}/>;
   else if(tab==="messages") content=<MessagesScreen/>;
-  else if(tab==="ranks")    content=<RanksScreen currentUid={authUser?.uid} userStats={userStats}/>;
-  else if(tab==="dashboard") content=<DashboardScreen score={score} rank={rank} streak={streak} accuracy={accuracy} userStats={userStats} uid={authUser?.uid} onBack={()=>setTab("home")} referralCount={referralCount}/>;
-  else content=<ProfileScreen score={score} rank={rank} streak={streak} accuracy={accuracy} xp={xp} level={level} kb={kb} addQuestion={addQuestion} onFeynman={()=>setFlow("feynman")} userName={authUser?.displayName||"Student"} userEmail={authUser?.email||""} userPhoto={authUser?.photoURL||""} onSignOut={async()=>{await signOutUser();setAuthUser(null);localStorage.removeItem("bb_auth_token");}} onSignIn={()=>setAuthUser(null)} userStats={userStats}/>;
+  else if(tab==="ranks")    content=<RanksScreen currentUid={authUser?.uid}/>;
+  else if(tab==="dashboard") content=<DashboardScreen score={score} rank={rank} streak={streak} accuracy={accuracy} userStats={userStats} uid={authUser?.uid} onBack={()=>setTab("home")}/>;
+  else content=<ProfileScreen score={score} rank={rank} streak={streak} accuracy={accuracy} xp={xp} level={level} kb={kb} addQuestion={addQuestion} onFeynman={()=>setFlow("doubt")} userName={authUser?.displayName||"Student"} userEmail={authUser?.email||""} userPhoto={authUser?.photoURL||""} onSignOut={async()=>{await signOutUser();setAuthUser(null);localStorage.removeItem("bb_auth_token");}} onSignIn={()=>setAuthUser(null)} userStats={userStats}/>;
 
   // Show loading while checking auth
   if(authLoading) return(
     <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#667EEA,#764BA2)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
       <div style={{fontSize:60}}>🧠</div>
-      <div style={{fontSize:16,fontWeight:700,color:"#fff"}}>Loading RankBattle...</div>
+      <div style={{fontSize:16,fontWeight:700,color:"#fff"}}>Loading BrainBattle...</div>
     </div>
   );
 
@@ -4049,10 +3227,6 @@ export default function App(){
             setAuthUser(user);
             localStorage.setItem("bb_uid", user.uid);
             ensureUserDoc(user).catch(console.error);
-            // Clean ?ref= from URL after it's been captured in ensureUserDoc
-            if(window.location.search.includes("ref=")){
-              window.history.replaceState({},"",window.location.pathname);
-            }
             const stats = await getUserStats(user.uid);
             setUserStats(stats);
           }
@@ -4076,11 +3250,12 @@ export default function App(){
   return(
     <>
       <style>{CSS}</style>
-      {LAUNCH_WEEK_ACTIVE&&<LaunchBanner referralCount={referralCount}/>}
-      <div style={{maxWidth:430,margin:"0 auto",minHeight:"100vh",position:"relative",background:"var(--bg)",paddingTop:LAUNCH_WEEK_ACTIVE?"38px":"0"}}>
+      {showGlobalPaywall&&<div style={{position:"fixed",inset:0,zIndex:9999}}>
+        <PaywallCard onClose={()=>setShowGlobalPaywall(false)} onUpgrade={()=>{setIsPremium(true);setShowGlobalPaywall(false);}}/>
+      </div>}
+      <div style={{maxWidth:430,margin:"0 auto",minHeight:"100vh",position:"relative",background:"var(--bg)"}}>
         {content}
         {!inFlow&&<BottomNav tab={tab} setTab={setTab} onQuiz={startQuiz}/>}
-        {showPaywall&&<PaywallModal onClose={()=>{setShowPaywall(false);setPaywallReason("");}} reason={paywallReason} uid={authUser?.uid||null} onSuccess={()=>{setUserUsage(u=>({...u,is_premium:true}));}}/>}
       </div>
     </>
   );
